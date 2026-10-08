@@ -5,6 +5,11 @@ export function isUnread(item) {
   return (item.updatedAt || "") > item.readAt;
 }
 
+export function isUpcomingReminder(item, todayIso) {
+  if (!item || item.status === "Siap" || item.remind !== "on") return false;
+  return item.date === addDays(todayIso, 2);
+}
+
 export function buildNotifications(items, todayIso) {
   const limit = addDays(todayIso, 7);
   const list = [];
@@ -15,6 +20,7 @@ export function buildNotifications(items, todayIso) {
     if (item.date < todayIso) kind = "terlewat";
     else if (item.date === todayIso) kind = "hariini";
     else if (item.time && item.date <= limit) kind = "nanti";
+    else if (isUpcomingReminder(item, todayIso)) kind = "nanti";
     if (!kind) continue;
     list.push({ item, kind, unread: isUnread(item) });
   }

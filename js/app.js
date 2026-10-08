@@ -293,7 +293,7 @@ function renderNotis() {
       if (!rows.length) return "";
       return `<section class="note-group"><h2 class="section-label">${label}</h2>${rows.map(notifCard).join("")}</section>`;
     }).join("")
-    : `<div class="empty"><p>Tiada kerja tertunggak.</p><p class="muted">Item Belum yang terlewat, hari ini, atau yang ada masa dalam 7 hari akan muncul di sini.</p></div>`;
+    : `<div class="empty"><p>Tiada kerja tertunggak.</p><p class="muted">Item Belum yang terlewat, hari ini, bermasa dalam 7 hari, atau diingatkan 2 hari lagi akan muncul di sini.</p></div>`;
   return `<div class="notis" data-testid="notif-list">
     <div class="notis-head">
       <p class="section-label">Pusat notifikasi</p>
@@ -463,7 +463,7 @@ function openEditor(id, dateOverride) {
           <option value="Siap"${item.status === "Siap" ? " selected" : ""}>Siap</option>
         </select>
       </label>
-      <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Emel lebih kurang 30 minit sebelum masa. Perlu isi masa.</span></label>
+      <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Notifikasi ke telefon 2 hari sebelum.</span></label>
       <p class="form-error" id="form-error"></p>
       <div class="dialog-actions">
         ${existing ? `<button type="button" class="btn-danger" id="btn-delete">Padam</button>` : ""}
@@ -513,10 +513,8 @@ function submitForm() {
     createdAt: prev?.createdAt || stamp,
     updatedAt: stamp,
   };
-  if (prev && (prev.date !== next.date || prev.time !== next.time)) {
-    next.remindedAt = "";
-    next.readAt = "";
-  }
+  if (prev && (prev.date !== next.date || prev.time !== next.time)) next.readAt = "";
+  if (prev && prev.date !== next.date) next.remindedAt = "";
   if (prev && prev.remind !== next.remind) next.remindedAt = "";
   state.selectedDate = next.date;
   if (state.view === "bulan" || state.view === "minggu" || state.view === "senarai") state.cursor = next.date;
@@ -736,6 +734,7 @@ async function sync(opts = {}) {
     state.syncedAt = nowIsoKL();
     state.syncError = "";
     refreshViews();
+    consumePendingItem(true);
   } catch (err) {
     state.mode = loadOutbox().length ? "pending" : "error";
     state.syncError = mapError(err);
@@ -775,6 +774,7 @@ async function pushAndPull(settings) {
   state.mode = "synced";
   state.syncedAt = nowIsoKL();
   state.syncError = "";
+  consumePendingItem(true);
 }
 
 async function connectFromForm() {
@@ -1142,9 +1142,46 @@ function bind() {
   setInterval(() => sync({ quiet: true }), 120000);
 }
 
+function itemQueryId() {
+  try {
+    return new URL(window.location.href).searchParams.get("item")?.trim() || "";
+  } catch (err) {
+    return "";
+  }
+}
+
+function clearItemQuery() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("item")) return;
+  url.searchParams.delete("item");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
+}
+
+function consumePendingItem(done) {
+  const id = state.pendingItemId;
+  if (!id) return;
+  const item = state.items.find((row) => row.id === id);
+  if (!item) {
+    if (done) {
+      state.pendingItemId = "";
+      clearItemQuery();
+    }
+    return;
+  }
+  state.pendingItemId = "";
+  clearItemQuery();
+  state.selectedDate = item.date;
+  state.cursor = item.date;
+  updateChrome();
+  renderView({ force: true });
+  renderDayPanel();
+  openEditor(item.id);
+}
+
 function boot() {
   state.settings = loadSettings();
   state.items = purgeSampleData();
+  state.pendingItemId = itemQueryId();
   refreshToday();
   state.cursor = state.today;
   state.selectedDate = state.today;
@@ -1153,6 +1190,7 @@ function boot() {
   bind();
   if (!location.hash) history.replaceState(null, "", "#bulan");
   applyView(parseHash());
+  consumePendingItem(!configured());
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }

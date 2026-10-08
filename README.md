@@ -60,7 +60,7 @@ Zon masa dalam fail itu ialah `Asia/Kuala_Lumpur`. Jangan tukar.
 
 `ACCESS_KEY` dan `APP_URL` huruf besar semua. Kalau silap huruf, app tak boleh masuk.
 
-Anda boleh isi `APP_URL` selepas GitHub Pages siap. Emel baca nilai ini semasa dihantar, jadi boleh dikemas kemudian tanpa pasang semula peringatan.
+Anda boleh isi `APP_URL` selepas GitHub Pages siap. Notifikasi baca nilai ini semasa dihantar (ketik notifikasi untuk buka app), jadi boleh dikemas kemudian tanpa pasang semula peringatan.
 
 Jangan kongsi kunci. Sesiapa yang ada pautan Web App **dan** kunci boleh nampak item anda.
 
@@ -77,8 +77,8 @@ Jangan kongsi kunci. Sesiapa yang ada pautan Web App **dan** kunci boleh nampak 
 Kebenaran yang diminta:
 
 - Lihat dan edit sheet ini — supaya item boleh disimpan.
-- Hantar emel sebagai anda — supaya peringatan sampai ke Gmail anda.
-- Urus pemasa (trigger) — supaya emel pagi dan peringatan 15 minit boleh berjalan.
+- Sambung ke perkhidmatan luar — supaya notifikasi boleh dihantar ke ntfy.sh.
+- Urus pemasa (trigger) — supaya peringatan setiap pagi boleh berjalan.
 
 Selepas siap, tutup dan buka semula Google Sheet. Tab **Items** ada, dengan kepala jadual. Menu **Content Planner** juga muncul di atas.
 
@@ -99,26 +99,24 @@ Kalau menu belum ada, jalankan `setup` dari editor sekali lagi.
 
 Setiap kali anda ubah `Code.gs` kemudian: **Deploy > Manage deployments > Edit (pensel) > Version: New version > Deploy**. Pautan `/exec` kekal sama.
 
-## F. Pasang emel peringatan
+## F. Pasang notifikasi telefon (ntfy)
 
-1. Dalam editor, pilih fungsi **installTriggers**.
-2. Klik **Run**. Benarkan jika diminta.
-3. Dalam log (Execution log) patut ada emel anda.
+App ini tidak hantar emel. Peringatan sampai sebagai notifikasi telefon melalui [ntfy.sh](https://ntfy.sh) (pelayan awam percuma).
 
-Ini pasang dua pemasa:
+1. Pasang app **ntfy** dari Play Store (Android) atau App Store (iPhone). Pautan kedai ada di laman ntfy.sh.
+2. Dalam editor Apps Script, pilih fungsi **setup**, klik **Run**. Kalau sheet sudah sedia, jalankan sekali lagi. Google mungkin minta kebenaran baharu (sambungan luar, bukan emel).
+3. Buka **Execution log**. Cari baris `NTFY_TOPIC`. Nilainya seperti `content-planner-` diikuti 16 huruf kecil atau nombor.
+4. Dalam app ntfy, langgan topik itu. Pelayan: **ntfy.sh** (lalai, jangan tukar).
+5. Pilih fungsi **installTriggers**, klik **Run** sekali. Ini padam pemasa lama (termasuk semakan 15 minit dan emel pagi, jika masih ada) dan pasang satu pemasa: setiap hari sekitar **jam 9 pagi**, Asia/Kuala_Lumpur.
+6. Pilih fungsi **testNtfy**, klik **Run**. Telefon patut terima mesej **Content Planner: notifikasi berjaya**.
 
-- Setiap hari, sekitar **jam 8 pagi** (boleh lewat dalam jam 8–9, Google tak tepat seminit). Emel ringkas: item hari ini dan item terlewat yang masih Belum.
-- Setiap **15 minit**. Kalau ada item bermasa, `remind` hidup, status Belum, dan belum diingatkan, emel dihantar **16 hingga 30 minit sebelum** masa itu. Lepas hantar, `remindedAt` diisi supaya tak hantar dua kali.
+Peringatan item dihantar oleh **sendTwoDayReminders** (pemasa di atas yang memanggilnya). Syarat: `remind` hidup, status bukan Siap, dan tarikh item tepat **2 hari** dari hari ini (waktu Kuala Lumpur). Masa item tidak wajib. Satu notifikasi sahaja untuk tarikh itu. `remindedAt` menyimpan tarikh yang sudah diingatkan. Kalau tarikh item ditukar, peringatan boleh dihantar semula untuk tarikh baru.
 
-Emel pergi ke akaun Google yang menjalankan `installTriggers`. Subjek bermula dengan **Content Planner**.
+Ketik notifikasi untuk buka item dalam app, jika `APP_URL` sudah diisi.
 
-Cuba tanpa tunggu pagi:
+Google tak jamin minit tepat. Notifikasi tiba dalam lingkungan jam 9–10 pagi.
 
-1. Pilih **previewDailyDigest**, Run. Teks emel keluar dalam log. Tak hantar emel.
-2. Pilih **sendDailyDigest**, Run. Emel benar dihantar jika ada item hari ini atau item terlewat.
-3. Untuk peringatan 30 minit: dalam app, buat item Belum, isi masa lebih kurang 20 minit dari sekarang, hidupkan Ingatkan. Kemudian Run **sendUpcomingReminders**. Atau tunggu pemasa 15 minit.
-
-Kalau tak ada item untuk diingatkan, tak ada emel. Itu sengaja, supaya peti masuk tak penuh.
+Untuk lihat item yang akan diingatkan hari ini tanpa hantar: jalankan **previewTwoDayReminders**. Teks keluar dalam log sahaja.
 
 ## G. Letak laman di GitHub Pages
 
@@ -170,7 +168,8 @@ Ikon ialah logo kalendar dengan pin.
 - Cari tajuk. Tapis jenama, jenis, dan status.
 - Pada laptop: menu kiri, kalendar di tengah, **Senarai hari ini** di kanan.
 - Pada telefon: menu bawah. Tekan satu hari dalam bulan untuk lihat senarai hari itu.
-- Loceng — pusat notifikasi. Kira item terlewat yang masih Belum, item hari ini yang Belum, dan item bermasa dalam 7 hari. Item Siap tak masuk.
+- **Ingatkan saya** — notifikasi telefon 2 hari sebelum tarikh. Masa tidak wajib.
+- Loceng — pusat notifikasi. Kira item terlewat yang masih Belum, item hari ini yang Belum, item bermasa dalam 7 hari, dan item dengan peringatan hidup yang tepat 2 hari lagi (walaupun tanpa masa). Item Siap tak masuk.
 - **Tandakan dibaca** dan **Tandakan semua dibaca** disimpan dalam Sheet (`readAt`), jadi telefon dan laptop setuju.
 - **Tandakan siap** dari notifikasi keluarkan item dari kerja tertunggak.
 - Tekan satu notifikasi untuk buka item itu terus.
@@ -184,7 +183,7 @@ Ikon ialah logo kalendar dengan pin.
 | "Tab Items tiada" | Jalankan `setup` sekali lagi. |
 | "Tak dapat hubung" | URL mesti `/exec`. Deploy semula jika anda ubah kod. Internet hidup. |
 | Laman GitHub kosong atau 404 | `index.html` mesti di root repo, bukan dalam folder `web`. Tunggu Pages siap. |
-| Emel tak sampai | Jalankan `installTriggers` semasa log masuk. Semak spam. Digest kosong tak dihantar. |
+| Notifikasi tak sampai | Jalankan `setup`, salin `NTFY_TOPIC` dari log, langgan topik itu dalam app ntfy (pelayan ntfy.sh). Kemudian `testNtfy`. Benarkan notifikasi pada telefon. |
 | Ubah kod tapi app lama | Deploy versi baru (Manage deployments > New version). Pada telefon, tutup app dan buka semula. |
 | Buka `index.html` dari folder | Guna pautan GitHub atau `python3 -m http.server`. |
 
@@ -193,8 +192,8 @@ Ikon ialah logo kalendar dengan pin.
 - Bukan Google Calendar, dan tak segerak dengan kalendar Google.
 - Tak ada analitik, kempen, atau banyak pengguna.
 - Tak ada ulang setiap minggu. Satu baris, satu item. Salin secara manual jika perlu.
-- Emel hanya ke pemilik skrip, bukan ke pelanggan.
-- Digest tiba dalam lingkungan jam 8–9 pagi, bukan tepat saat 8:00:00.
-- Peringatan tiba 16–30 minit sebelum masa, kerana semakan setiap 15 minit.
+- Tiada emel. Peringatan ialah notifikasi ntfy, 2 hari sebelum tarikh, sekitar jam 9 pagi.
+- Notifikasi pergi ke telefon yang melanggan topik. Bukan ke pelanggan.
+- Google tak jamin minit tepat. Notifikasi tiba dalam lingkungan jam 9–10 pagi, bukan tepat 9:00:00.
 - Laman GitHub Pages adalah awam. Data item tidak awam, selagi kunci tidak dikongsi.
 - Selepas ubah `Code.gs`, anda mesti deploy versi baru. Simpan sahaja tidak cukup.

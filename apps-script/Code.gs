@@ -5,9 +5,9 @@
  * 1. Tampal fail ini ke Code.gs (ganti semua).
  * 2. Tampal appsscript.json.
  * 3. Script properties: ACCESS_KEY dan APP_URL (huruf besar tepat).
- * 4. Jalankan setup.
+ * 4. Jalankan setup. Log menunjukkan NTFY_TOPIC. Langgan topik itu dalam app ntfy.
  * 5. Deploy > Web app > Execute as: Me > Who has access: Anyone.
- * 6. Jalankan installTriggers.
+ * 6. Jalankan installTriggers (sekali). Kemudian testNtfy.
  *
  * Setiap permintaan web mesti bawa kunci yang sama dengan ACCESS_KEY.
  * Badan POST ialah JSON bertulis text/plain (supaya pelayar tak buat preflight CORS).
@@ -40,32 +40,45 @@ function isIsoDate_(s) {
   return true;
 }
 
-function isHm_(s) {
-  s = String(s || "");
-  if (s.length !== 5 || s.charAt(2) !== ":") return false;
-  var hh = Number(s.slice(0, 2));
-  var mm = Number(s.slice(3, 5));
-  if (!isFinite(hh) || !isFinite(mm)) return false;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return false;
+function addIsoDays_(iso, days) {
+  if (!isIsoDate_(iso)) return "";
+  var y = Number(iso.slice(0, 4));
+  var m = Number(iso.slice(5, 7));
+  var d = Number(iso.slice(8, 10));
+  var dt = new Date(Date.UTC(y, m - 1, d + Number(days)));
+  var yy = String(dt.getUTCFullYear());
+  var mm = dt.getUTCMonth() + 1;
+  var dd = dt.getUTCDate();
+  var mmText = mm < 10 ? "0" + mm : String(mm);
+  var ddText = dd < 10 ? "0" + dd : String(dd);
+  return yy + "-" + mmText + "-" + ddText;
+}
+
+function alreadyRemindedFor_(remindedAt, itemDate) {
+  var stamp = String(remindedAt || "").trim();
+  if (!stamp || !isIsoDate_(itemDate)) return false;
+  if (stamp === itemDate) return true;
+  return stamp.slice(0, 10) === itemDate;
+}
+
+function shouldRemindItem(item, todayIso) {
+  if (!item) return false;
+  if (item.remind !== "on") return false;
+  if (item.status === "Siap") return false;
+  if (!isIsoDate_(item.date) || !isIsoDate_(todayIso)) return false;
+  if (item.date !== addIsoDays_(todayIso, 2)) return false;
+  if (alreadyRemindedFor_(item.remindedAt, item.date)) return false;
   return true;
 }
 
-function minutesUntilStart(dateStr, timeStr, nowMs) {
-  if (!isIsoDate_(dateStr) || !isHm_(timeStr)) return null;
-  var ms = Date.parse(String(dateStr) + "T" + String(timeStr) + ":00+08:00");
-  if (isNaN(ms)) return null;
-  return (ms - nowMs) / 60000;
-}
-
-function shouldRemindItem(item, nowMs) {
-  if (!item) return false;
-  if (item.remind !== "on") return false;
-  if (item.remindedAt) return false;
-  if (item.status === "Siap") return false;
-  if (!item.time) return false;
-  var mins = minutesUntilStart(item.date, item.time, nowMs);
-  if (mins === null) return false;
-  return mins > 0 && mins <= 30;
+function selectTwoDayReminders(items, todayIso) {
+  var out = [];
+  var i;
+  if (!items || !items.length) return out;
+  for (i = 0; i < items.length; i++) {
+    if (shouldRemindItem(items[i], todayIso)) out.push(items[i]);
+  }
+  return out;
 }
 
 function typeLabel_(type) {
@@ -87,88 +100,90 @@ function formatMalayDate_(iso) {
   return days[wd] + ", " + d + " " + months[m - 1] + " " + y;
 }
 
-function compareByTime_(a, b) {
-  var ta = a.time || "99:99";
-  var tb = b.time || "99:99";
-  if (ta < tb) return -1;
-  if (ta > tb) return 1;
-  var na = a.title || "";
-  var nb = b.title || "";
-  if (na < nb) return -1;
-  if (na > nb) return 1;
-  return 0;
+function oneLine_(value) {
+  return String(value || "").replace(/[\u0000-\u001F\u007F]+/g, " ").replace(/ +/g, " ").trim();
 }
 
-function digestHasContent_(items, today) {
+function utf8Base64_(text) {
+  var bytes = [];
   var i;
-  for (i = 0; i < items.length; i++) {
-    var it = items[i];
-    if (it.date === today) return true;
-    if (it.status === "Belum" && it.date && it.date < today) return true;
+  for (i = 0; i < text.length; i++) {
+    var c = text.charCodeAt(i);
+    if (c < 128) bytes.push(c);
+    else if (c < 2048) bytes.push(192 | (c >> 6), 128 | (c & 63));
+    else if (c >= 55296 && c <= 56319 && i + 1 < text.length) {
+      var c2 = text.charCodeAt(i + 1);
+      i += 1;
+      var u = ((c & 1023) << 10 | (c2 & 1023)) + 65536;
+      bytes.push(240 | (u >> 18), 128 | ((u >> 12) & 63), 128 | ((u >> 6) & 63), 128 | (u & 63));
+    } else bytes.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63));
   }
-  return false;
+  var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  var out = "";
+  for (i = 0; i < bytes.length; i += 3) {
+    var b0 = bytes[i];
+    var b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    var b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += alphabet.charAt(b0 >> 2);
+    out += alphabet.charAt(((b0 & 3) << 4) | (b1 >> 4));
+    out += i + 1 < bytes.length ? alphabet.charAt(((b1 & 15) << 2) | (b2 >> 6)) : "=";
+    out += i + 2 < bytes.length ? alphabet.charAt(b2 & 63) : "=";
+  }
+  return out;
 }
 
-function digestLine_(it, withDate) {
-  var when = it.time || "—";
-  if (withDate) when = it.date + " " + when;
-  return "• " + when + "  " + it.title + "  (" + it.brand + ", " + typeLabel_(it.type) + ")  " + it.status;
-}
-
-function buildDigestText_(items, today, appUrl) {
-  var todays = [];
-  var overdue = [];
+function ntfyHeader_(value) {
+  var text = oneLine_(value);
   var i;
-  for (i = 0; i < items.length; i++) {
-    var it = items[i];
-    if (it.date === today) todays.push(it);
-    else if (it.status === "Belum" && it.date && it.date < today) overdue.push(it);
+  for (i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) > 126) return "=?UTF-8?B?" + utf8Base64_(text) + "?=";
   }
-  todays.sort(compareByTime_);
-  overdue.sort(function (a, b) {
-    if (a.date < b.date) return -1;
-    if (a.date > b.date) return 1;
-    return compareByTime_(a, b);
-  });
-  var lines = [];
-  lines.push("Content Planner");
-  lines.push(formatMalayDate_(today));
-  lines.push("");
-  lines.push("Hari ini");
-  if (!todays.length) lines.push("• Tiada");
-  for (i = 0; i < todays.length; i++) lines.push(digestLine_(todays[i], false));
-  lines.push("");
-  lines.push("Terlewat (belum siap)");
-  if (!overdue.length) lines.push("• Tiada");
-  var cap = overdue.length > 30 ? 30 : overdue.length;
-  for (i = 0; i < cap; i++) lines.push(digestLine_(overdue[i], true));
-  if (overdue.length > 30) lines.push("• +" + (overdue.length - 30) + " lagi");
-  if (appUrl) {
-    lines.push("");
-    lines.push("Buka: " + appUrl);
-  }
-  return lines.join("\n");
+  return text;
 }
 
-function buildReminderText_(item, appUrl) {
+function ntfyTagForType_(type) {
+  if (type === "Task") return "clipboard";
+  if (type === "Event") return "calendar";
+  if (type === "Notes") return "memo";
+  if (type === "Posting") return "mega";
+  return "bell";
+}
+
+function itemClickUrl_(appUrl, id) {
+  var base = String(appUrl || "").trim();
+  var itemId = String(id || "").trim();
+  if (!base || !itemId) return "";
+  var hash = "";
+  var hashAt = base.indexOf("#");
+  if (hashAt >= 0) {
+    hash = base.slice(hashAt);
+    base = base.slice(0, hashAt);
+  }
+  var joiner = base.indexOf("?") >= 0 ? "&" : "?";
+  return base + joiner + "item=" + encodeURIComponent(itemId) + hash;
+}
+
+function clipNote_(notes) {
+  var note = oneLine_(notes);
+  if (note.length > 180) note = note.slice(0, 180) + "…";
+  return note;
+}
+
+function buildNtfyReminder_(item, appUrl) {
+  var when = formatMalayDate_(item.date);
+  if (item.time) when = when + ", " + item.time;
   var lines = [];
-  lines.push("Peringatan — lebih kurang 30 minit lagi.");
-  lines.push("");
-  lines.push(item.title);
-  lines.push("Jenama: " + item.brand);
+  lines.push("Jenama: " + String(item.brand || ""));
   lines.push("Jenis: " + typeLabel_(item.type));
-  lines.push("Masa: " + formatMalayDate_(item.date) + ", " + item.time);
-  var note = String(item.notes || "");
-  if (note) {
-    if (note.length > 400) note = note.slice(0, 400) + "…";
-    lines.push("");
-    lines.push(note);
-  }
-  if (appUrl) {
-    lines.push("");
-    lines.push("Buka: " + appUrl);
-  }
-  return lines.join("\n");
+  lines.push("Tarikh: " + when);
+  var note = clipNote_(item.notes);
+  if (note) lines.push(note);
+  return {
+    title: "2 hari lagi: " + oneLine_(item.title).slice(0, 140),
+    body: lines.join("\n"),
+    tags: ntfyTagForType_(item.type),
+    click: itemClickUrl_(appUrl, item.id)
+  };
 }
 
 // ----- Web app -----
@@ -236,16 +251,6 @@ function safeEqual_(a, b) {
 
 function appUrl_() {
   return String(PropertiesService.getScriptProperties().getProperty("APP_URL") || "").trim();
-}
-
-function ownerEmail_() {
-  var saved = PropertiesService.getScriptProperties().getProperty("OWNER_EMAIL") || "";
-  if (saved) return saved;
-  try {
-    return Session.getEffectiveUser().getEmail() || "";
-  } catch (err) {
-    return "";
-  }
 }
 
 function nowIsoKL_(date) {
@@ -494,16 +499,16 @@ function markAllRead_(body) {
   });
 }
 
-// ----- Menu, setup, emel -----
+// ----- Menu, setup, notifikasi ntfy -----
+// OWNER_EMAIL (jika masih ada dari versi lama) tidak dibaca dan tidak digunakan.
 
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Content Planner")
     .addItem("1. Setup helaian", "setup")
-    .addItem("2. Pasang peringatan emel", "installTriggers")
-    .addItem("Pratonton digest (log)", "previewDailyDigest")
-    .addItem("Pratonton peringatan (log)", "previewReminders")
-    .addItem("Hantar digest sekarang", "sendDailyDigest")
+    .addItem("2. Pasang peringatan ntfy", "installTriggers")
+    .addItem("Uji notifikasi ntfy", "testNtfy")
+    .addItem("Pratonton peringatan 2 hari (log)", "previewTwoDayReminders")
     .addToUi();
 }
 
@@ -531,100 +536,137 @@ function setup() {
   sheet.setFrozenRows(1);
   var widths = [220, 240, 100, 120, 110, 80, 280, 80, 80, 180, 180, 180, 180];
   widths.forEach(function (width, i) { sheet.setColumnWidth(i + 1, width); });
-  console.log("Setup siap. Tab Items sedia. Zon masa Asia/Kuala_Lumpur.");
-  return "Setup siap.";
+  var topic = ensureNtfyTopic_();
+  Logger.log("NTFY_TOPIC: " + topic);
+  console.log("NTFY_TOPIC: " + topic);
+  console.log("Setup siap. Tab Items sedia. Zon masa Asia/Kuala_Lumpur. Langgan topik di atas dalam app ntfy (pelayan ntfy.sh).");
+  return "Setup siap. NTFY_TOPIC: " + topic;
+}
+
+function ensureNtfyTopic_() {
+  var props = PropertiesService.getScriptProperties();
+  var topic = String(props.getProperty("NTFY_TOPIC") || "").trim();
+  if (topic) return topic;
+  topic = "content-planner-" + randomTopicSuffix_(16);
+  props.setProperty("NTFY_TOPIC", topic);
+  return topic;
+}
+
+function randomTopicSuffix_(length) {
+  var alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  var out = "";
+  var i;
+  for (i = 0; i < length; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  return out;
 }
 
 function installTriggers() {
-  var email = "";
-  try {
-    email = Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail() || "";
-  } catch (err) {
-    email = "";
-  }
-  if (!email) {
-    throw new Error("Tak dapat emel anda. Jalankan installTriggers dari editor semasa anda log masuk.");
-  }
-  PropertiesService.getScriptProperties().setProperty("OWNER_EMAIL", email);
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    var fn = trigger.getHandlerFunction();
-    if (fn === "sendDailyDigest" || fn === "sendUpcomingReminders") {
-      ScriptApp.deleteTrigger(trigger);
-    }
+    ScriptApp.deleteTrigger(trigger);
   });
-  ScriptApp.newTrigger("sendDailyDigest")
+  ScriptApp.newTrigger("sendTwoDayReminders")
     .timeBased()
-    .atHour(8)
+    .atHour(9)
     .everyDays(1)
     .inTimezone(TZ)
     .create();
-  ScriptApp.newTrigger("sendUpcomingReminders")
-    .timeBased()
-    .everyMinutes(15)
-    .create();
-  console.log("Peringatan dipasang untuk " + email + ". Digest sekitar 8 pagi. Semakan item setiap 15 minit.");
-  return "Peringatan dipasang untuk " + email;
+  var topic = String(PropertiesService.getScriptProperties().getProperty("NTFY_TOPIC") || "").trim();
+  console.log("Pemasa lama dipadam. Peringatan ntfy dipasang: setiap hari sekitar jam 9 pagi (Asia/Kuala_Lumpur).");
+  if (!topic) console.log("NTFY_TOPIC belum ada. Jalankan setup, kemudian langgan topik itu dalam app ntfy.");
+  return "Peringatan ntfy dipasang.";
 }
 
-function sendDailyDigest() {
-  var email = ownerEmail_();
-  if (!email) {
-    console.log("OWNER_EMAIL kosong. Jalankan installTriggers.");
+function sendTwoDayReminders() {
+  var topic = String(PropertiesService.getScriptProperties().getProperty("NTFY_TOPIC") || "").trim();
+  if (!topic) {
+    console.log("NTFY_TOPIC kosong. Jalankan setup.");
     return;
   }
   var today = todayKL_(new Date());
-  var items = readAllItems_();
-  if (!digestHasContent_(items, today)) {
-    console.log("Digest kosong untuk " + today + ". Emel tak dihantar.");
-    return;
-  }
-  var body = buildDigestText_(items, today, appUrl_());
-  MailApp.sendEmail(email, "Content Planner — senarai hari ini", body);
-}
-
-function sendUpcomingReminders() {
-  var email = ownerEmail_();
-  if (!email) {
-    console.log("OWNER_EMAIL kosong. Jalankan installTriggers.");
-    return;
-  }
-  var now = new Date();
-  var nowMs = now.getTime();
   var url = appUrl_();
-  var due = readAllItems_().filter(function (item) { return shouldRemindItem(item, nowMs); });
+  var due = selectTwoDayReminders(readAllItems_(), today);
+  console.log("Peringatan 2 hari untuk " + addIsoDays_(today, 2) + ": " + due.length + " item.");
   due.forEach(function (item) {
-    var subject = "Content Planner — 30 minit lagi: " + String(item.title).slice(0, 80);
-    MailApp.sendEmail(email, subject, buildReminderText_(item, url));
-    markReminded_(item.id, nowIsoKL_(now));
+    var note = buildNtfyReminder_(item, url);
+    if (!postNtfy_(topic, note)) {
+      console.log("Tak dihantar: " + item.id + " " + item.title);
+      return;
+    }
+    markReminded_(item.id, item.date);
+    console.log("Dihantar: " + item.date + " " + item.title);
   });
 }
 
-function markReminded_(id, stamp) {
+function testNtfy() {
+  var topic = String(PropertiesService.getScriptProperties().getProperty("NTFY_TOPIC") || "").trim();
+  if (!topic) {
+    console.log("NTFY_TOPIC kosong. Jalankan setup.");
+    return "NTFY_TOPIC kosong. Jalankan setup.";
+  }
+  var ok = postNtfy_(topic, {
+    title: "Content Planner: notifikasi berjaya",
+    body: "Content Planner: notifikasi berjaya",
+    tags: "white_check_mark",
+    click: appUrl_()
+  });
+  if (!ok) return "Notifikasi ujian gagal. Lihat log.";
+  console.log("Notifikasi ujian dihantar. Semak telefon.");
+  return "Notifikasi ujian dihantar.";
+}
+
+function postNtfy_(topic, note) {
+  var safeTopic = String(topic || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(safeTopic)) {
+    console.log("NTFY_TOPIC tidak sah.");
+    return false;
+  }
+  var headers = {
+    Title: ntfyHeader_(note.title),
+    Tags: ntfyHeader_(note.tags)
+  };
+  if (note.click) headers.Click = oneLine_(note.click);
+  var response;
+  try {
+    response = UrlFetchApp.fetch("https://ntfy.sh/" + safeTopic, {
+      method: "post",
+      contentType: "text/plain; charset=utf-8",
+      payload: String(note.body || ""),
+      headers: headers,
+      muteHttpExceptions: true
+    });
+  } catch (err) {
+    console.log("ntfy gagal: " + String(err && err.message ? err.message : err));
+    return false;
+  }
+  var code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    console.log("ntfy gagal HTTP " + code + " " + String(response.getContentText() || "").slice(0, 300));
+    return false;
+  }
+  return true;
+}
+
+function markReminded_(id, itemDate) {
   withLock_(function () {
     var item = readAllItems_().filter(function (it) { return it.id === id; })[0];
-    if (!item || item.remindedAt) return;
-    item.remindedAt = stamp;
-    item.updatedAt = stamp;
+    if (!item || item.date !== itemDate) return;
+    if (alreadyRemindedFor_(item.remindedAt, item.date)) return;
+    item.remindedAt = item.date;
+    item.updatedAt = nowIsoKL_(new Date());
     writeItem_(item);
   });
 }
 
-function previewDailyDigest() {
+function previewTwoDayReminders() {
   var today = todayKL_(new Date());
-  var text = buildDigestText_(readAllItems_(), today, appUrl_());
-  console.log(text);
-  return text;
-}
-
-function previewReminders() {
-  var now = new Date();
-  var due = readAllItems_().filter(function (item) { return shouldRemindItem(item, now.getTime()); });
+  var due = selectTwoDayReminders(readAllItems_(), today);
   if (!due.length) {
-    console.log("Tiada item dalam tetingkap 30 minit.");
+    console.log("Tiada item untuk " + addIsoDays_(today, 2) + ".");
     return "Tiada";
   }
   var lines = due.map(function (item) {
-    return item.date + " " + item.time + "  " + item.title;
+    var when = item.time ? item.date + " " + item.time : item.date;
+    return when + "  " + item.title;
   });
   console.log(lines.join("\n"));
   return lines.join("\n");

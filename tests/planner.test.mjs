@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isSampleId, makeSeed, mergeItems, normalizeItem, passFilter, sortForList, withoutSamples, SAMPLE_IDS } from "../js/model.js";
 import { clearLocalData, loadItems, loadOutbox, loadTombs, purgeSampleData, saveItems, saveOutbox, saveTombs } from "../js/storage.js";
-import { buildNotifications, isUnread, unreadCount } from "../js/notify.js";
+import { buildNotifications, isUnread, isUpcomingReminder, unreadCount } from "../js/notify.js";
 import {
   addDays,
   addMonths,
@@ -38,16 +38,19 @@ function loadGas() {
   const src = fs.readFileSync(path.join(root, "apps-script/Code.gs"), "utf8");
   const names = [
     "isIsoDate_",
-    "isHm_",
-    "minutesUntilStart",
+    "addIsoDays_",
+    "alreadyRemindedFor_",
     "shouldRemindItem",
+    "selectTwoDayReminders",
     "typeLabel_",
     "formatMalayDate_",
-    "compareByTime_",
-    "digestHasContent_",
-    "digestLine_",
-    "buildDigestText_",
-    "buildReminderText_",
+    "oneLine_",
+    "utf8Base64_",
+    "ntfyHeader_",
+    "ntfyTagForType_",
+    "itemClickUrl_",
+    "clipNote_",
+    "buildNtfyReminder_",
   ];
   const body = names.map((name) => extractFunction(src, name)).join("\n");
   return new Function(`${body}\nreturn { ${names.join(", ")} };`)();
@@ -55,40 +58,20 @@ function loadGas() {
 
 const gas = loadGas();
 
-function itemAt(minuteOfDay, extra = {}) {
-  const hh = String(Math.floor(minuteOfDay / 60)).padStart(2, "0");
-  const mm = String(minuteOfDay % 60).padStart(2, "0");
+function reminderItem(extra = {}) {
   return {
+    id: "abc",
     remind: "on",
     remindedAt: "",
     status: "Belum",
-    date: "2026-10-08",
-    time: `${hh}:${mm}`,
-    title: "Ujian",
+    date: "2026-10-10",
+    time: "09:00",
+    title: "Reel",
     brand: "Brutti",
-    type: "Task",
-    notes: "",
+    type: "Posting",
+    notes: "Hook",
     ...extra,
   };
-}
-
-const base = Date.parse("2026-10-08T00:00:00+08:00");
-
-function leads(phase, itemMinute) {
-  const startMs = base + itemMinute * 60000;
-  const hh = String(Math.floor(itemMinute / 60)).padStart(2, "0");
-  const mm = String(itemMinute % 60).padStart(2, "0");
-  let remindedAt = "";
-  const sends = [];
-  for (let trig = phase - 90; trig < itemMinute + 20; trig += 15) {
-    const nowMs = base + trig * 60000;
-    const item = itemAt(itemMinute, { time: `${hh}:${mm}`, remindedAt });
-    if (gas.shouldRemindItem(item, nowMs)) {
-      sends.push((startMs - nowMs) / 60000);
-      remindedAt = "sent";
-    }
-  }
-  return sends;
 }
 
 // 8 Oct 2026 is Thursday, 00:30 in Kuala Lumpur.
@@ -108,49 +91,60 @@ assert.equal(october[0], "2026-09-28");
 assert.equal(october.at(-1), "2026-11-01");
 
 assert.equal(gas.formatMalayDate_("2026-10-08"), "Khamis, 8 Oktober 2026");
-assert.equal(gas.shouldRemindItem(itemAt(0, { remind: "off" }), base - 20 * 60000), false);
-assert.equal(gas.shouldRemindItem(itemAt(0, { remindedAt: "x" }), base - 20 * 60000), false);
-assert.equal(gas.shouldRemindItem(itemAt(0, { status: "Siap" }), base - 20 * 60000), false);
-assert.equal(gas.shouldRemindItem(itemAt(0, { time: "" }), base - 20 * 60000), false);
-assert.equal(gas.shouldRemindItem(itemAt(20), base), true);
-assert.equal(gas.shouldRemindItem(itemAt(30), base), true);
-assert.equal(gas.shouldRemindItem(itemAt(31), base), false);
-assert.equal(gas.shouldRemindItem(itemAt(0), base), false);
+assert.equal(gas.addIsoDays_("2026-10-08", 2), "2026-10-10");
+assert.equal(gas.addIsoDays_("2026-10-31", 2), "2026-11-02");
+assert.equal(gas.addIsoDays_("2026-12-30", 2), "2027-01-01");
+assert.equal(gas.addIsoDays_("2024-02-28", 1), "2024-02-29");
+assert.equal(gas.addIsoDays_("bukan-tarikh", 2), "");
 
-// Cross midnight: 23:50 KL on 7 Oct is 20 minutes before 00:10 on 8 Oct.
-const late = Date.parse("2026-10-07T15:50:00Z");
-assert.equal(gas.minutesUntilStart("2026-10-08", "00:10", late), 20);
-assert.equal(gas.shouldRemindItem(itemAt(10), late), true);
+const target = reminderItem();
+assert.equal(gas.shouldRemindItem(target, "2026-10-08"), true);
+assert.equal(gas.shouldRemindItem(reminderItem({ time: "" }), "2026-10-08"), true);
+assert.equal(gas.shouldRemindItem(target, "2026-10-09"), false);
+assert.equal(gas.shouldRemindItem(target, "2026-10-07"), false);
+assert.equal(gas.shouldRemindItem(reminderItem({ remind: "off" }), "2026-10-08"), false);
+assert.equal(gas.shouldRemindItem(reminderItem({ status: "Siap" }), "2026-10-08"), false);
+assert.equal(gas.shouldRemindItem(reminderItem({ date: "2026-11-01" }), "2026-10-30"), true);
+assert.equal(gas.alreadyRemindedFor_("", "2026-10-10"), false);
+assert.equal(gas.alreadyRemindedFor_("2026-10-10", "2026-10-10"), true);
+assert.equal(gas.alreadyRemindedFor_("2026-10-10", "2026-10-12"), false);
+assert.equal(gas.alreadyRemindedFor_("2026-10-08T09:00:00+08:00", "2026-10-10"), false);
+assert.equal(gas.alreadyRemindedFor_("2026-10-10T09:05:00+08:00", "2026-10-10"), true);
+assert.equal(gas.shouldRemindItem(reminderItem({ remindedAt: "2026-10-10" }), "2026-10-08"), false);
+assert.equal(gas.shouldRemindItem(reminderItem({ date: "2026-10-12", remindedAt: "2026-10-10" }), "2026-10-10"), true);
 
-for (let phase = 0; phase < 15; phase += 1) {
-  for (let minute = 0; minute < 24 * 60; minute += 1) {
-    const sends = leads(phase, minute);
-    assert.equal(sends.length, 1, `phase ${phase} minute ${minute} sends ${sends}`);
-    assert.ok(sends[0] >= 16 && sends[0] <= 30, `lead ${sends[0]} phase ${phase} minute ${minute}`);
-  }
-}
+const picked = gas.selectTwoDayReminders([
+  target,
+  reminderItem({ id: "off", remind: "off" }),
+  reminderItem({ id: "done", status: "Siap" }),
+  reminderItem({ id: "later", date: "2026-10-11" }),
+  reminderItem({ id: "notime", time: "", title: "Tanpa" }),
+  reminderItem({ id: "sent", remindedAt: "2026-10-10" }),
+], "2026-10-08");
+assert.deepEqual(picked.map((item) => item.id), ["abc", "notime"]);
 
-const digestItems = [
-  { date: "2026-10-08", time: "09:00", title: "Reel", brand: "Brutti", type: "Posting", status: "Belum", notes: "" },
-  { date: "2026-10-08", time: "", title: "Nota siap", brand: "Umum", type: "Notes", status: "Siap", notes: "" },
-  { date: "2026-10-07", time: "16:00", title: "Video", brand: "Badax", type: "Task", status: "Belum", notes: "" },
-  { date: "2026-10-06", time: "", title: "Siap lama", brand: "Saja", type: "Task", status: "Siap", notes: "" },
-  { date: "2026-10-09", time: "11:00", title: "Esok", brand: "Saja", type: "Posting", status: "Belum", notes: "" },
-];
-assert.equal(gas.digestHasContent_(digestItems, "2026-10-08"), true);
-assert.equal(gas.digestHasContent_([digestItems[4]], "2026-10-08"), false);
-const digest = gas.buildDigestText_(digestItems, "2026-10-08", "https://contoh.github.io/marketing-planner/");
-assert.match(digest, /Content Planner/);
-assert.match(digest, /Reel/);
-assert.match(digest, /Nota siap/);
-assert.match(digest, /Video/);
-assert.doesNotMatch(digest, /Siap lama/);
-assert.doesNotMatch(digest, /Esok/);
-assert.match(digest, /Buka: https:\/\/contoh.github.io\/marketing-planner\//);
-const reminder = gas.buildReminderText_(digestItems[0], "https://contoh.github.io/marketing-planner/");
-assert.match(reminder, /30 minit/);
-assert.match(reminder, /Brutti/);
-assert.match(reminder, /Posting/);
+const note = gas.buildNtfyReminder_(target, "https://contoh.github.io/marketing-planner/");
+assert.equal(note.title, "2 hari lagi: Reel");
+assert.match(note.body, /Jenama: Brutti/);
+assert.match(note.body, /Jenis: Posting/);
+assert.match(note.body, /Tarikh: Sabtu, 10 Oktober 2026, 09:00/);
+assert.match(note.body, /Hook/);
+assert.equal(note.tags, "mega");
+assert.equal(note.click, "https://contoh.github.io/marketing-planner/?item=abc");
+const noTime = gas.buildNtfyReminder_(reminderItem({ time: "", notes: "" }), "https://contoh.github.io/marketing-planner/");
+assert.match(noTime.body, /Tarikh: Sabtu, 10 Oktober 2026/);
+assert.doesNotMatch(noTime.body, /09:00/);
+assert.equal(gas.buildNtfyReminder_(target, "").click, "");
+assert.equal(gas.itemClickUrl_("https://contoh.github.io/marketing-planner/?x=1#bulan", "a b"), "https://contoh.github.io/marketing-planner/?x=1&item=a%20b#bulan");
+const longNote = gas.buildNtfyReminder_(reminderItem({ notes: "a".repeat(200) }), "https://contoh.github.io/marketing-planner/");
+assert.match(longNote.body, /a{180}…/);
+assert.doesNotMatch(longNote.body, /a{181}/);
+assert.equal(gas.ntfyTagForType_("Task"), "clipboard");
+assert.equal(gas.ntfyTagForType_("Event"), "calendar");
+assert.equal(gas.ntfyTagForType_("Notes"), "memo");
+assert.equal(gas.ntfyHeader_("2 hari lagi: Reel"), "2 hari lagi: Reel");
+assert.equal(gas.ntfyHeader_("Äpfel"), "=?UTF-8?B?w4RwZmVs?=");
+assert.equal(gas.ntfyHeader_("a\nb"), "a b");
 
 const today = "2026-10-08";
 const stamp = "2026-10-08T08:00:00+08:00";
@@ -161,6 +155,24 @@ const notes = buildNotifications(seed, today);
 assert.ok(notes.some((entry) => entry.kind === "terlewat" && entry.item.id === "seed-05"));
 assert.ok(notes.every((entry) => entry.item.status !== "Siap"));
 assert.ok(!notes.some((entry) => entry.item.id === "seed-09"));
+assert.equal(isUpcomingReminder(seed.find((item) => item.id === "seed-09"), today), false);
+const twoDay = normalizeItem({
+  id: "plain-2",
+  title: "Tanpa masa",
+  type: "Task",
+  brand: "Umum",
+  date: "2026-10-10",
+  time: "",
+  status: "Belum",
+  remind: "on",
+  updatedAt: stamp,
+});
+assert.equal(isUpcomingReminder(twoDay, today), true);
+assert.ok(buildNotifications([twoDay], today).some((entry) => entry.item.id === "plain-2" && entry.kind === "nanti"));
+assert.equal(buildNotifications([{ ...twoDay, status: "Siap" }], today).length, 0);
+assert.equal(buildNotifications([{ ...twoDay, remind: "off" }], today).length, 0);
+assert.equal(buildNotifications([{ ...twoDay, date: "2026-10-09" }], today).length, 0);
+assert.ok(buildNotifications([reminderItem({ id: "timed-2", remind: "off", date: "2026-10-10" })], today).some((entry) => entry.item.id === "timed-2"));
 assert.ok(notes.some((entry) => entry.item.id === "seed-02" && entry.unread === false));
 assert.equal(isUnread(seed.find((item) => item.id === "seed-01")), true);
 assert.equal(unreadCount(seed, today), notes.filter((entry) => entry.unread).length);
@@ -194,8 +206,25 @@ assert.match(api, /redirect: "follow"/);
 assert.equal(manifest.name, "Content Planner");
 assert.equal(manifest.short_name, "Content Planner");
 assert.equal(appsscript.timeZone, "Asia/Kuala_Lumpur");
-assert.match(gs, /Content Planner — senarai hari ini/);
-assert.match(gs, /Content Planner — 30 minit lagi:/);
+assert.doesNotMatch(gs, /MailApp|GmailApp|sendEmail/);
+assert.match(gs, /https:\/\/ntfy\.sh\//);
+assert.match(gs, /muteHttpExceptions:\s*true/);
+assert.match(gs, /NTFY_TOPIC/);
+assert.match(gs, /Content Planner: notifikasi berjaya/);
+const install = extractFunction(gs, "installTriggers");
+assert.match(install, /getProjectTriggers/);
+assert.match(install, /deleteTrigger/);
+assert.match(install, /sendTwoDayReminders/);
+assert.match(install, /atHour\(9\)/);
+assert.doesNotMatch(install, /everyMinutes|sendDailyDigest|OWNER_EMAIL/);
+const setupSrc = extractFunction(gs, "setup");
+const topicSrc = extractFunction(gs, "ensureNtfyTopic_");
+assert.match(setupSrc, /ensureNtfyTopic_/);
+assert.match(setupSrc, /Logger\.log/);
+assert.match(topicSrc, /content-planner-/);
+assert.match(topicSrc, /randomTopicSuffix_\(16\)/);
+assert.ok(appsscript.oauthScopes.includes("https://www.googleapis.com/auth/script.external_request"));
+assert.ok(!appsscript.oauthScopes.includes("https://www.googleapis.com/auth/script.send_mail"));
 assert.match(html, /<title>Content Planner<\/title>/);
 assert.match(html, /src="\.\/icons\/icon-192\.png"/);
 assert.doesNotMatch(html, /(?:href|src)="\//);
@@ -267,8 +296,12 @@ assert.doesNotMatch(html, /chip-row|class="fchip"/);
 assert.match(appSrc, /Semua brand/);
 assert.match(appSrc, /Semua jenis/);
 assert.match(appSrc, /Semua status/);
-assert.match(sw, /content-planner-v3/);
+assert.match(appSrc, /Notifikasi ke telefon 2 hari sebelum/);
+assert.match(appSrc, /searchParams\.get\("item"\)/);
+assert.doesNotMatch(appSrc, /30 minit|Emel /);
+assert.match(sw, /content-planner-v4/);
 assert.doesNotMatch(sw, /content-planner-v1/);
 assert.doesNotMatch(sw, /content-planner-v2/);
+assert.doesNotMatch(sw, /content-planner-v3/);
 
 console.log("planner tests ok");
