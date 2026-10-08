@@ -14,6 +14,7 @@ import {
   TYPES,
   brandColor,
   esc,
+  isSampleId,
   mergeItems,
   newId,
   normalizeItem,
@@ -21,16 +22,18 @@ import {
   sortForDay,
   sortForList,
   typeLabel,
+  withoutSamples,
 } from "./model.js";
 import { buildNotifications, isUnread, unreadCount } from "./notify.js";
 import {
   clearLocalData,
-  ensureSeeded,
+  discardSampleQueue,
   isConfigured,
   loadItems,
   loadOutbox,
   loadSettings,
   loadTombs,
+  purgeSampleData,
   saveItems,
   saveOutbox,
   saveSettings,
@@ -329,8 +332,8 @@ function renderSettings() {
     </div>
     <p class="form-error" id="set-msg">${esc(state.syncError || "")}</p>
     <h2>Data di peranti ini</h2>
-    <p class="help">Kosongkan cache tak padam baris dalam Google Sheet. Item dipadam satu-satu dari kalendar.</p>
-    <button type="button" class="btn-ghost" id="set-clear">Kosongkan cache tempatan</button>
+    <p class="help">Buang item yang disimpan pada telefon atau laptop ini. Dalam mod demo, item tempatan dipadam. Bila Sheet bersambung, hanya cache tempatan dikosongkan — baris dalam Google Sheet tidak dipadam.</p>
+    <button type="button" class="btn-ghost" id="set-clear">Kosongkan data</button>
   </div>`;
 }
 
@@ -697,7 +700,7 @@ async function persistDelete(id) {
 }
 
 async function flushOutbox() {
-  const box = loadOutbox();
+  const box = discardSampleQueue().filter((op) => !(op.op === "upsert" && isSampleId(op.item?.id)));
   for (let i = 0; i < box.length; i += 1) {
     const op = box[i];
     try {
@@ -725,12 +728,12 @@ async function sync(opts = {}) {
   try {
     await flushOutbox();
     const remote = (await apiList(state.settings)).items || [];
-    const remoteNorm = remote.map(normalizeItem).filter(Boolean);
+    const remoteNorm = withoutSamples(remote.map(normalizeItem).filter(Boolean));
     const tombs = loadTombs();
     for (const id of Object.keys(tombs)) {
-      if (!remoteNorm.some((item) => item.id === id)) delete tombs[id];
+      if (isSampleId(id) || !remoteNorm.some((item) => item.id === id)) delete tombs[id];
     }
-    const merged = mergeItems(loadItems(), remoteNorm, tombs);
+    const merged = withoutSamples(mergeItems(withoutSamples(loadItems()), remoteNorm, tombs));
     saveItems(merged);
     saveTombs(tombs);
     state.items = merged;
@@ -749,21 +752,27 @@ async function sync(opts = {}) {
 }
 
 async function pushAndPull(settings) {
-  const remote = ((await apiList(settings)).items || []).map(normalizeItem).filter(Boolean);
-  const local = loadItems();
+  discardSampleQueue();
+  const remote = withoutSamples(((await apiList(settings)).items || []).map(normalizeItem).filter(Boolean));
+  const local = withoutSamples(loadItems());
   const tombs = loadTombs();
-  const merged = mergeItems(local, remote, tombs);
+  for (const id of Object.keys(tombs)) {
+    if (isSampleId(id)) delete tombs[id];
+  }
+  const merged = withoutSamples(mergeItems(local, remote, tombs));
   for (const item of merged) {
+    if (isSampleId(item.id)) continue;
     const remoteItem = remote.find((row) => row.id === item.id);
     if (!remoteItem || (item.updatedAt || "") > (remoteItem.updatedAt || "")) {
       await apiUpsert(settings, item);
     }
   }
   for (const [id, at] of Object.entries(tombs)) {
+    if (isSampleId(id)) continue;
     const remoteItem = remote.find((row) => row.id === id);
     if (remoteItem && at >= (remoteItem.updatedAt || "")) await apiDelete(settings, id);
   }
-  const remote2 = ((await apiList(settings)).items || []).map(normalizeItem).filter(Boolean);
+  const remote2 = withoutSamples(((await apiList(settings)).items || []).map(normalizeItem).filter(Boolean));
   saveItems(remote2);
   saveTombs({});
   saveOutbox([]);
@@ -991,19 +1000,16 @@ function onClick(event) {
     return;
   }
   if (event.target.closest("#set-clear")) {
-    const button = event.target.closest("#set-clear");
-    if (button.dataset.sure !== "1") {
-      button.dataset.sure = "1";
-      button.textContent = "Pasti kosongkan?";
-      return;
-    }
+    const connected = configured();
+    const message = connected
+      ? "Kosongkan data pada peranti ini? Hanya cache tempatan dikosongkan. Baris dalam Google Sheet tidak dipadam."
+      : "Kosongkan semua data pada peranti ini? Item di telefon atau laptop ini akan dipadam.";
+    if (!window.confirm(message)) return;
     clearLocalData();
     state.items = [];
     refreshViews();
-    button.dataset.sure = "";
-    button.textContent = "Kosongkan cache tempatan";
-    toast("Cache dikosongkan");
-    if (configured()) sync();
+    toast(connected ? "Cache tempatan dikosongkan" : "Data dikosongkan");
+    if (connected) sync();
   }
 }
 
@@ -1051,7 +1057,7 @@ function bind() {
 
 function boot() {
   state.settings = loadSettings();
-  state.items = ensureSeeded();
+  state.items = purgeSampleData();
   refreshToday();
   state.cursor = state.today;
   state.selectedDate = state.today;

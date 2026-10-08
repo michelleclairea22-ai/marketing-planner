@@ -4,7 +4,7 @@ Kalendar peribadi Michelle Claire. Untuk tugasan, acara, nota, dan peringatan po
 
 Data disimpan dalam Google Sheet. Telefon dan laptop baca sheet yang sama.
 
-Kalau Google belum disambung, app tetap jalan dalam **mod demo**. Data demo kekal di telefon atau laptop itu sahaja.
+Kalau Google belum disambung, app tetap jalan dalam **mod demo**. Kalendar mula kosong, tanpa item contoh. Item yang anda tambah kekal di telefon atau laptop itu sahaja.
 
 Zon masa: Asia/Kuala_Lumpur (UTC+8).
 
@@ -141,7 +141,7 @@ Kemaskini `APP_URL` dalam Script properties kepada pautan ini, jika belum.
 
 Buat benda yang sama pada telefon dan laptop. Kunci dan URL yang sama. Item, status Siap, dan notifikasi dibaca (`readAt`) akan sama di kedua-dua.
 
-Item yang anda buat dalam mod demo akan naik ke Sheet semasa sambungan pertama, jika ia lebih baru daripada baris dalam Sheet.
+Item yang anda buat sendiri dalam mod demo akan naik ke Sheet semasa sambungan pertama, jika ia lebih baru daripada baris dalam Sheet. Item contoh lama tidak dihantar ke Sheet.
 
 ## I. Tambah ke skrin utama telefon
 
@@ -174,6 +174,7 @@ Ikon ialah logo kalendar dengan pin.
 - **Tandakan dibaca** dan **Tandakan semua dibaca** disimpan dalam Sheet (`readAt`), jadi telefon dan laptop setuju.
 - **Tandakan siap** dari notifikasi keluarkan item dari kerja tertunggak.
 - Tekan satu notifikasi untuk buka item itu terus.
+- **Tetapan > Kosongkan data** — buang item pada peranti ini. Kalau Sheet sudah bersambung, hanya cache tempatan dikosongkan. Baris dalam Sheet tidak dipadam.
 
 ## Kalau ada masalah
 

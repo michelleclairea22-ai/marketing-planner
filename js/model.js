@@ -94,6 +94,32 @@ export function sortForList(items) {
   });
 }
 
+export const SAMPLE_IDS = [
+  "seed-01",
+  "seed-02",
+  "seed-03",
+  "seed-04",
+  "seed-05",
+  "seed-06",
+  "seed-07",
+  "seed-08",
+  "seed-09",
+  "seed-10",
+  "seed-11",
+  "seed-12",
+];
+
+const SAMPLE_ID_SET = new Set(SAMPLE_IDS);
+
+export function isSampleId(id) {
+  return SAMPLE_ID_SET.has(String(id || ""));
+}
+
+export function withoutSamples(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item) => item && !isSampleId(item.id));
+}
+
 export function mergeItems(local, server, tombstones = {}) {
   const map = new Map();
   for (const raw of server) {
@@ -114,6 +140,7 @@ export function mergeItems(local, server, tombstones = {}) {
   return [...map.values()];
 }
 
+// Test fixture only. The app must not insert these rows.
 export function makeSeed(today, stamp) {
   const at = (n) => addDays(today, n);
   const row = (partial) => ({

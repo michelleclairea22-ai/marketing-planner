@@ -1,11 +1,11 @@
-import { makeSeed, normalizeItem } from "./model.js";
-import { nowIsoKL, todayISO } from "./time.js";
+import { isSampleId, normalizeItem, withoutSamples } from "./model.js";
 
 const ITEMS = "cp.items.v1";
 const SETTINGS = "cp.settings.v1";
 const TOMBS = "cp.tombstones.v1";
 const OUTBOX = "cp.outbox.v1";
 const SEEDED = "cp.seeded.v1";
+const SAMPLES_REMOVED = "cp.samplesRemoved.v1";
 
 function readJSON(key, fallback) {
   try {
@@ -64,25 +64,57 @@ export function saveOutbox(ops) {
   localStorage.setItem(OUTBOX, JSON.stringify(ops));
 }
 
-export function ensureSeeded() {
-  if (localStorage.getItem(SEEDED)) return loadItems();
-  if (localStorage.getItem(ITEMS)) {
-    localStorage.setItem(SEEDED, "1");
-    return loadItems();
+function outboxWithoutSamples(ops) {
+  const next = [];
+  for (const op of ops) {
+    if (!op || typeof op !== "object") continue;
+    if (op.op === "upsert" && isSampleId(op.item?.id)) continue;
+    if (op.op === "delete" && isSampleId(op.id)) continue;
+    if (op.op === "markAllRead" && Array.isArray(op.ids)) {
+      const ids = op.ids.filter((id) => !isSampleId(id));
+      if (!ids.length) continue;
+      next.push(ids.length === op.ids.length ? op : { ...op, ids });
+      continue;
+    }
+    next.push(op);
   }
-  const items = makeSeed(todayISO(), nowIsoKL());
-  saveItems(items);
-  localStorage.setItem(SEEDED, "1");
-  return items;
+  return next;
 }
 
-export function markSeeded() {
-  localStorage.setItem(SEEDED, "1");
+export function discardSampleQueue() {
+  const box = loadOutbox();
+  const next = outboxWithoutSamples(box);
+  if (JSON.stringify(next) !== JSON.stringify(box)) saveOutbox(next);
+  return next;
+}
+
+// Drop old demo rows (seed-01 … seed-12) and never insert them again.
+export function purgeSampleData() {
+  const items = loadItems();
+  const kept = withoutSamples(items);
+  if (kept.length !== items.length) saveItems(kept);
+  discardSampleQueue();
+  const tombs = loadTombs();
+  let tombChanged = false;
+  for (const id of Object.keys(tombs)) {
+    if (isSampleId(id)) {
+      delete tombs[id];
+      tombChanged = true;
+    }
+  }
+  if (tombChanged) saveTombs(tombs);
+  try {
+    localStorage.removeItem(SEEDED);
+  } catch {
+    // Ignore a locked or missing store.
+  }
+  if (!localStorage.getItem(SAMPLES_REMOVED)) localStorage.setItem(SAMPLES_REMOVED, "1");
+  return kept;
 }
 
 export function clearLocalData() {
   saveItems([]);
   saveTombs({});
   saveOutbox([]);
-  markSeeded();
+  if (!localStorage.getItem(SAMPLES_REMOVED)) localStorage.setItem(SAMPLES_REMOVED, "1");
 }

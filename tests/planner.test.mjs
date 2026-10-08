@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeSeed, mergeItems, normalizeItem, passFilter, sortForList } from "../js/model.js";
+import { isSampleId, makeSeed, mergeItems, normalizeItem, passFilter, sortForList, withoutSamples, SAMPLE_IDS } from "../js/model.js";
+import { clearLocalData, loadItems, loadOutbox, loadTombs, purgeSampleData, saveItems, saveOutbox, saveTombs } from "../js/storage.js";
 import { buildNotifications, isUnread, unreadCount } from "../js/notify.js";
 import {
   addDays,
@@ -201,5 +202,64 @@ assert.doesNotMatch(html, /(?:href|src)="\//);
 for (const brand of ["Brutti", "Selesaai", "Tumbooh", "Badax", "Saja", "Umum"]) {
   assert.match(gs, new RegExp(brand));
 }
+
+assert.deepEqual(seed.map((item) => item.id), SAMPLE_IDS);
+assert.equal(isSampleId("seed-01"), true);
+assert.equal(isSampleId("seed-12"), true);
+assert.equal(isSampleId("seed-13"), false);
+assert.equal(isSampleId("6f1c0c3e-1b2a-4d5e-9f70-abc123def456"), false);
+const own = normalizeItem({ ...seed[0], id: "user-1", title: "Brief sendiri" });
+assert.deepEqual(withoutSamples([...seed, own]).map((item) => item.id), ["user-1"]);
+
+const mem = new Map();
+globalThis.localStorage = {
+  getItem(key) { return mem.has(key) ? mem.get(key) : null; },
+  setItem(key, value) { mem.set(key, String(value)); },
+  removeItem(key) { mem.delete(key); },
+};
+saveItems([...seed, own]);
+saveOutbox([
+  { op: "upsert", item: seed[0] },
+  { op: "upsert", item: own },
+  { op: "delete", id: "seed-05" },
+  { op: "markAllRead", ids: ["seed-02", "user-1"], readAt: stamp },
+]);
+saveTombs({ "seed-03": stamp, "user-1": stamp });
+assert.deepEqual(purgeSampleData().map((item) => item.id), ["user-1"]);
+assert.deepEqual(loadItems().map((item) => item.id), ["user-1"]);
+assert.deepEqual(loadOutbox(), [
+  { op: "upsert", item: own },
+  { op: "markAllRead", ids: ["user-1"], readAt: stamp },
+]);
+assert.deepEqual(loadTombs(), { "user-1": stamp });
+assert.equal(localStorage.getItem("cp.samplesRemoved.v1"), "1");
+assert.equal(localStorage.getItem("cp.seeded.v1"), null);
+assert.deepEqual(purgeSampleData().map((item) => item.id), ["user-1"]);
+
+mem.clear();
+assert.deepEqual(purgeSampleData(), []);
+assert.equal(mem.has("cp.items.v1"), false);
+assert.equal(localStorage.getItem("cp.samplesRemoved.v1"), "1");
+
+saveItems(seed);
+clearLocalData();
+assert.deepEqual(loadItems(), []);
+assert.deepEqual(purgeSampleData(), []);
+
+const storageSrc = fs.readFileSync(path.join(root, "js/storage.js"), "utf8");
+const appSrc = fs.readFileSync(path.join(root, "js/app.js"), "utf8");
+const sw = fs.readFileSync(path.join(root, "sw.js"), "utf8");
+assert.doesNotMatch(storageSrc, /makeSeed/);
+assert.doesNotMatch(appSrc, /makeSeed|ensureSeeded/);
+assert.match(appSrc, /Kosongkan data/);
+assert.match(appSrc, /window\.confirm/);
+assert.match(appSrc, /Baris dalam Google Sheet tidak dipadam/);
+const push = appSrc.slice(appSrc.indexOf("async function pushAndPull"), appSrc.indexOf("async function connectFromForm"));
+assert.match(push, /isSampleId\(item\.id\)\) continue/);
+assert.match(push, /withoutSamples/);
+const flush = appSrc.slice(appSrc.indexOf("async function flushOutbox"), appSrc.indexOf("async function sync"));
+assert.match(flush, /discardSampleQueue/);
+assert.match(sw, /content-planner-v2/);
+assert.doesNotMatch(sw, /content-planner-v1/);
 
 console.log("planner tests ok");
