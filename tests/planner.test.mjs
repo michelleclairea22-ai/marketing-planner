@@ -259,7 +259,16 @@ assert.match(push, /isSampleId\(item\.id\)\) continue/);
 assert.match(push, /withoutSamples/);
 const flush = appSrc.slice(appSrc.indexOf("async function flushOutbox"), appSrc.indexOf("async function sync"));
 assert.match(flush, /discardSampleQueue/);
-assert.match(sw, /content-planner-v2/);
+assert.match(html, /class="filter-selects"/);
+assert.match(html, /id="brand-filters"/);
+assert.match(html, /id="type-filters"/);
+assert.match(html, /id="status-filters"/);
+assert.doesNotMatch(html, /chip-row|class="fchip"/);
+assert.match(appSrc, /Semua brand/);
+assert.match(appSrc, /Semua jenis/);
+assert.match(appSrc, /Semua status/);
+assert.match(sw, /content-planner-v3/);
 assert.doesNotMatch(sw, /content-planner-v1/);
+assert.doesNotMatch(sw, /content-planner-v2/);
 
 console.log("planner tests ok");

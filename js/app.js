@@ -135,15 +135,10 @@ function updateChrome() {
   document.querySelectorAll("[data-nav]").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.nav === state.view);
   });
-  document.querySelectorAll("[data-brand]").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.brand === state.filters.brand);
-  });
-  document.querySelectorAll("[data-type]").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.type === state.filters.type);
-  });
-  document.querySelectorAll("[data-status]").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.status === state.filters.status);
-  });
+  markFilterOptions("brand", state.filters.brand);
+  markFilterOptions("type", state.filters.type);
+  markFilterOptions("status", state.filters.status);
+  syncFilterSelects();
   const label = syncLabel();
   document.querySelectorAll("[data-sync-label]").forEach((el) => {
     el.textContent = label;
@@ -860,19 +855,99 @@ function toast(message) {
   }, 3200);
 }
 
+const FILTER_CHEVRON = `<svg class="chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.1 4.2 6 8l3.9-3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+function filterSelectHtml(btnId, menuId, label, options) {
+  return `<button type="button" class="fselect-btn" id="${btnId}" aria-haspopup="listbox" aria-expanded="false" aria-controls="${menuId}">
+    <span class="fselect-value"><span class="dot fselect-dot" hidden></span><span class="fselect-text">${label}</span></span>
+    ${FILTER_CHEVRON}
+  </button>
+  <div class="fselect-menu" id="${menuId}" role="listbox" hidden>${options}</div>`;
+}
+
 function buildFilters() {
-  document.getElementById("brand-filters").innerHTML = [`<button type="button" class="fchip" data-brand="Semua">Semua</button>`]
-    .concat(BRANDS.map((brand) => `<button type="button" class="fchip" data-brand="${brand.id}"><span class="dot" style="background:${brand.color}"></span>${brand.id}</button>`))
+  const brandOpts = [`<button type="button" class="fselect-opt" role="option" data-brand="Semua">Semua brand</button>`]
+    .concat(BRANDS.map((brand) => `<button type="button" class="fselect-opt" role="option" data-brand="${esc(brand.id)}"><span class="dot" style="background:${brand.color}"></span>${esc(brand.id)}</button>`))
     .join("");
-  document.getElementById("type-filters").innerHTML = [`<button type="button" class="fchip" data-type="Semua">Semua jenis</button>`]
-    .concat(TYPES.map((type) => `<button type="button" class="fchip" data-type="${type.id}">${type.label}</button>`))
+  const typeOpts = [`<button type="button" class="fselect-opt" role="option" data-type="Semua">Semua jenis</button>`]
+    .concat(TYPES.map((type) => `<button type="button" class="fselect-opt" role="option" data-type="${esc(type.id)}">${esc(type.label)}</button>`))
     .join("");
-  document.getElementById("status-filters").innerHTML = ["Semua", "Belum", "Siap"]
-    .map((status) => `<button type="button" class="fchip" data-status="${status}">${status === "Semua" ? "Semua status" : status}</button>`)
-    .join("");
+  const statusOpts = [
+    ["Semua", "Semua status"],
+    ["Belum", "Belum"],
+    ["Siap", "Siap"],
+  ].map(([value, label]) => `<button type="button" class="fselect-opt" role="option" data-status="${esc(value)}">${esc(label)}</button>`).join("");
+  document.getElementById("brand-filters").innerHTML = filterSelectHtml("brand-filters-btn", "brand-filters-menu", "Brand", brandOpts);
+  document.getElementById("type-filters").innerHTML = filterSelectHtml("type-filters-btn", "type-filters-menu", "Jenis", typeOpts);
+  document.getElementById("status-filters").innerHTML = filterSelectHtml("status-filters-btn", "status-filters-menu", "Status", statusOpts);
+}
+
+function markFilterOptions(key, current) {
+  document.querySelectorAll(`[data-${key}]`).forEach((btn) => {
+    const on = btn.dataset[key] === current;
+    btn.classList.toggle("is-active", on);
+    if (btn.getAttribute("role") === "option") btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+}
+
+function paintFilterSelect(id, { label, active, dot, aria }) {
+  const root = document.getElementById(id);
+  if (!root) return;
+  root.classList.toggle("is-filtered", active);
+  const text = root.querySelector(".fselect-text");
+  const dotEl = root.querySelector(".fselect-dot");
+  const btn = root.querySelector(".fselect-btn");
+  if (text) text.textContent = label;
+  if (btn && aria) btn.setAttribute("aria-label", aria);
+  if (!dotEl) return;
+  dotEl.hidden = !dot;
+  dotEl.style.background = dot || "";
+}
+
+function syncFilterSelects() {
+  const brandOn = state.filters.brand !== "Semua";
+  const typeOn = state.filters.type !== "Semua";
+  const statusOn = state.filters.status !== "Semua";
+  paintFilterSelect("brand-filters", {
+    label: brandOn ? state.filters.brand : "Brand",
+    active: brandOn,
+    dot: brandOn ? brandColor(state.filters.brand) : "",
+    aria: brandOn ? `Jenama, ${state.filters.brand}` : "Jenama",
+  });
+  paintFilterSelect("type-filters", {
+    label: typeOn ? typeLabel(state.filters.type) : "Jenis",
+    active: typeOn,
+    dot: "",
+    aria: typeOn ? `Jenis, ${typeLabel(state.filters.type)}` : "Jenis",
+  });
+  paintFilterSelect("status-filters", {
+    label: statusOn ? state.filters.status : "Status",
+    active: statusOn,
+    dot: "",
+    aria: statusOn ? `Status, ${state.filters.status}` : "Status",
+  });
+}
+
+function closeFilterMenus() {
+  document.querySelectorAll(".fselect.is-open").forEach((el) => {
+    el.classList.remove("is-open");
+    const btn = el.querySelector(".fselect-btn");
+    const menu = el.querySelector(".fselect-menu");
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    if (menu) menu.hidden = true;
+  });
+}
+
+function openFilterMenu(el) {
+  el.classList.add("is-open");
+  const btn = el.querySelector(".fselect-btn");
+  const menu = el.querySelector(".fselect-menu");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  if (menu) menu.hidden = false;
 }
 
 function onClick(event) {
+  if (!event.target.closest(".fselect")) closeFilterMenus();
   const toggle = event.target.closest("[data-toggle]");
   if (toggle) {
     persistStatus(toggle.dataset.toggle);
@@ -928,9 +1003,18 @@ function onClick(event) {
     openEditor(open.dataset.open);
     return;
   }
+  const filterBtn = event.target.closest(".fselect-btn");
+  if (filterBtn) {
+    const wrap = filterBtn.closest(".fselect");
+    const willOpen = !wrap.classList.contains("is-open");
+    closeFilterMenus();
+    if (willOpen) openFilterMenu(wrap);
+    return;
+  }
   const brand = event.target.closest("[data-brand]");
   if (brand) {
     state.filters.brand = brand.dataset.brand;
+    closeFilterMenus();
     updateChrome();
     refreshViews();
     return;
@@ -938,6 +1022,7 @@ function onClick(event) {
   const type = event.target.closest("[data-type]");
   if (type) {
     state.filters.type = type.dataset.type;
+    closeFilterMenus();
     updateChrome();
     refreshViews();
     return;
@@ -945,6 +1030,7 @@ function onClick(event) {
   const status = event.target.closest("[data-status]");
   if (status) {
     state.filters.status = status.dataset.status;
+    closeFilterMenus();
     updateChrome();
     refreshViews();
     return;
@@ -1033,6 +1119,7 @@ function bind() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (!document.getElementById("modal").hidden) closeModal();
+    else if (document.querySelector(".fselect.is-open")) closeFilterMenus();
     else closeSheet();
   });
   window.addEventListener("hashchange", () => applyView(parseHash()));
