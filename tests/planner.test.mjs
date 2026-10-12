@@ -300,7 +300,7 @@ assert.match(appSrc, /Ingatkan saya\. Email 2 hari sebelum\./);
 assert.doesNotMatch(appSrc, /ntfy|Notifikasi ke telefon/);
 assert.match(appSrc, /searchParams\.get\("item"\)/);
 assert.doesNotMatch(appSrc, /30 minit|Emel /);
-assert.match(sw, /content-planner-v5/);
+assert.match(sw, /content-planner-v6/);
 assert.doesNotMatch(sw, /content-planner-v4/);
 assert.doesNotMatch(sw, /content-planner-v1/);
 assert.doesNotMatch(sw, /content-planner-v2/);

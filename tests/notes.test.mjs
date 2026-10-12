@@ -103,3 +103,20 @@ const css = fs.readFileSync(path.join(root, "css/app.css"), "utf8");
 assert.match(css, /touch-action: none/);
 
 console.log("notes tests ok");
+
+// Zoom/pan mapping
+{
+  const { zoomAt, clampView, stageToImage, clampZoom } = await import("../js/notes.js");
+  assert.equal(clampZoom(10), 6);
+  assert.equal(clampZoom(0.2), 1);
+  const v = zoomAt({ z: 1, x: 10, y: 20 }, 2, 110, 120);
+  assert.deepEqual(v, { z: 2, x: -90, y: -80 });
+  // Same stage point maps to the same image point before and after zoom.
+  const a = stageToImage(110, 120, { z: 1, x: 10, y: 20 }, 400, 300, 1600, 1200);
+  const b = stageToImage(110, 120, v, 400, 300, 1600, 1200);
+  assert.deepEqual(a, b);
+  assert.deepEqual(a, { x: 400, y: 400 });
+  assert.deepEqual(clampView({ z: 1, x: 99, y: 0 }, 400, 300, 420, 320), { z: 1, x: 10, y: 10 });
+  assert.deepEqual(clampView({ z: 3, x: 50, y: -5000 }, 400, 300, 420, 320), { z: 3, x: 0, y: -580 });
+  assert.equal(strokeWidth(3, 0.25 * 4), 3);
+}

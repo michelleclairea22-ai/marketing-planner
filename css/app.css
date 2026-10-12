@@ -822,8 +822,10 @@ body.is-drawing { overflow: hidden; overscroll-behavior: none; }
 .draw-btn.is-active { border-color: var(--pink); color: var(--pink); }
 .draw-color { width: 30px; height: 30px; border-radius: 99px; background: var(--c); border: 2px solid transparent; cursor: pointer; }
 .draw-color.is-active { border-color: #fff; box-shadow: 0 0 0 2px var(--pink); }
-.draw-stage { flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; touch-action: none; }
-.draw-frame { position: relative; touch-action: none; box-shadow: 0 0 0 1px var(--line); }
+.draw-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; touch-action: none; overscroll-behavior: none; }
+.draw-stage.is-pan, .draw-stage.is-pan .draw-annot { cursor: grab; }
+.draw-zoom { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted, #9ca3af); font-variant-numeric: tabular-nums; }
+.draw-frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; touch-action: none; box-shadow: 0 0 0 1px var(--line); }
 .draw-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .draw-annot { cursor: crosshair; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 

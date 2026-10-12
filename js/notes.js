@@ -110,3 +110,32 @@ export function pendingUploads(note, hasLocal) {
   }
   return out;
 }
+
+// Zoom/pan view for the drawing editor: frame top-left at (x, y) inside the stage, scaled by z.
+export const ZOOM_MIN = 1;
+export const ZOOM_MAX = 6;
+
+export function clampZoom(z) {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+}
+
+// Zoom to z keeping the stage point (cx, cy) fixed over the same image spot.
+export function zoomAt(view, z, cx, cy) {
+  const nz = clampZoom(z);
+  return { z: nz, x: cx - ((cx - view.x) / view.z) * nz, y: cy - ((cy - view.y) / view.z) * nz };
+}
+
+// Keep the scaled frame (fw×fh at z=1) covering the stage, or centred when smaller.
+export function clampView(view, fw, fh, sw, sh) {
+  const axis = (pos, size, stage) => {
+    const s = size * view.z;
+    if (s <= stage) return (stage - s) / 2;
+    return Math.min(0, Math.max(stage - s, pos));
+  };
+  return { z: view.z, x: axis(view.x, fw, sw), y: axis(view.y, fh, sh) };
+}
+
+// Stage point -> image coordinates for a view (frame fw wide at z=1 shows imgW pixels).
+export function stageToImage(sx, sy, view, fw, fh, imgW, imgH) {
+  return { x: ((sx - view.x) / (fw * view.z)) * imgW, y: ((sy - view.y) / (fh * view.z)) * imgH };
+}
