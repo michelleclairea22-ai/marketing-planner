@@ -2,7 +2,7 @@
 // POST text/plain JSON to the Web App URL. No custom headers (avoids CORS preflight).
 // Apps Script answers with a redirect; fetch follows it and reads the JSON body.
 //
-// Actions: ping, list, upsert, delete, setStatus, markRead, markAllRead,
+// Actions: ping, list, upsert, upsertMany, delete, deleteMany, setStatus, markRead, markAllRead,
 //          notesList, noteUpsert, noteDelete, imageUpload, imageGet
 // Body always includes { action, key }.
 // Success: { ok: true, ... }  Failure: { ok: false, error }
@@ -69,3 +69,30 @@ export const apiNoteUpsert = (s, note) => callApi(s, "noteUpsert", { note });
 export const apiNoteDelete = (s, id) => callApi(s, "noteDelete", { id });
 export const apiImageUpload = (s, dataUrl, name) => callApi(s, "imageUpload", { dataUrl, name });
 export const apiImageGet = (s, fileId) => callApi(s, "imageGet", { fileId });
+export const apiUpsertMany = (s, items) => callApi(s, "upsertMany", { items });
+export const apiDeleteMany = (s, ids) => callApi(s, "deleteMany", { ids });
+
+// Hantar banyak item sekali gus (kumpulan 50). Jika pelayan lama tiada upsertMany, guna upsert satu-satu.
+export async function apiUpsertItems(s, items) {
+  for (let i = 0; i < items.length; i += 50) {
+    const chunk = items.slice(i, i + 50);
+    try {
+      await apiUpsertMany(s, chunk);
+    } catch (err) {
+      if (err?.code !== "unknown_action") throw err;
+      for (const item of chunk) await apiUpsert(s, item);
+    }
+  }
+}
+
+export async function apiDeleteItems(s, ids) {
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    try {
+      await apiDeleteMany(s, chunk);
+    } catch (err) {
+      if (err?.code !== "unknown_action") throw err;
+      for (const id of chunk) await apiDelete(s, id);
+    }
+  }
+}

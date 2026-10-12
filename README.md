@@ -81,12 +81,13 @@ Kebenaran yang diminta:
 - Lihat dan edit sheet ini — supaya item boleh disimpan.
 - Gmail dan alamat emel anda — supaya emel peringatan boleh dihantar kepada anda.
 - Google Drive — supaya gambar dalam **Nota** disimpan dalam folder **Content Planner Notes**.
-- Sambung ke perkhidmatan luar.
 - Urus pemasa (trigger) — supaya peringatan setiap pagi boleh berjalan.
 
 Selepas siap, tutup dan buka semula Google Sheet. Tab **Items** dan **Notes** ada, dengan kepala jadual. Menu **Content Planner** juga muncul di atas.
 
 Kalau menu belum ada, jalankan `setup` dari editor sekali lagi.
+
+`setup` selamat dijalankan semula. Jika tab **Items** lama tiada lajur `seriesId` dan `repeat` (untuk item berulang), `setup` menambahnya di hujung tanpa mengubah data sedia ada. Web app juga menambah lajur ini sendiri jika belum ada.
 
 ## E. Deploy Web App
 
@@ -111,7 +112,7 @@ Peringatan dihantar sebagai **emel** ke akaun Google anda, melalui fail `Emel.gs
 2. Pilih fungsi **installEmailTriggers**, klik **Run** sekali. Ini padam pemasa lama dan pasang satu pemasa: setiap hari sekitar **jam 9 pagi**, Asia/Kuala_Lumpur.
 3. Pilih fungsi **testEmail**, klik **Run**. Anda patut terima emel **Peringatan Content Planner (ujian)**.
 
-Jangan jalankan `installTriggers` (versi lama) selepas ini — ia akan memadam pemasa emel.
+Kod notifikasi ntfy lama (`installTriggers`, `sendTwoDayReminders`, `testNtfy`, `NTFY_TOPIC`) telah dibuang. Script property `NTFY_TOPIC` lama, jika ada, boleh dipadam — ia tidak dibaca lagi.
 
 Syarat peringatan: `remind` hidup, status bukan Siap, dan tarikh item tepat **2 hari** dari hari ini (waktu Kuala Lumpur). Masa item tidak wajib. Satu emel sahaja untuk tarikh itu. `remindedAt` menyimpan tarikh yang sudah diingatkan. Emel peringatan dibuang sendiri sehari selepas tarikh item.
 
@@ -173,6 +174,7 @@ Ikon ialah logo kalendar dengan pin.
 - Pada telefon: menu bawah. Tekan satu hari dalam bulan untuk lihat senarai hari itu.
 - **Ingatkan saya** — emel 2 hari sebelum tarikh. Masa tidak wajib.
 - **Nota** — nota teks dan gambar. Tambah gambar dari kamera atau galeri, tekan **Lukis** untuk tanda atau conteng (pen merah, hijau, biru; Halus/Tebal; Pemadam; Undo). Lukisan disimpan berasingan, jadi gambar asal tak rosak dan tanda boleh dipadam kemudian. **Lukisan kosong** untuk nota tulisan tangan. Gambar disimpan dalam Google Drive (folder **Content Planner Notes**) dan disegerak ke telefon dan laptop.
+- **Ulang** dalam borang item — Tidak / Setiap hari / Setiap minggu / Setiap 2 minggu / Setiap bulan, dengan tarikh **Hingga** (wajib, had 100 ulangan). Setiap ulangan disimpan sebagai item biasa dalam Sheet, berkongsi `seriesId`; `repeat` menyimpan peraturan (cth. `weekly|2026-12-31`). Bulanan pada 29–31 haribulan jatuh pada hari akhir bulan yang lebih pendek. Item berulang ada ikon ulang kecil. Bila edit atau padam satu ulangan, app tanya: **ini sahaja** atau **semua akan datang** (tarikh ini dan selepasnya). Status Siap/Belum hanya untuk ulangan itu. Peringatan emel dan loceng berfungsi seperti item biasa.
 - Loceng — pusat notifikasi. Kira item terlewat yang masih Belum, item hari ini yang Belum, item bermasa dalam 7 hari, dan item dengan peringatan hidup yang tepat 2 hari lagi (walaupun tanpa masa). Item Siap tak masuk.
 - **Tandakan dibaca** dan **Tandakan semua dibaca** disimpan dalam Sheet (`readAt`), jadi telefon dan laptop setuju.
 - **Tandakan siap** dari notifikasi keluarkan item dari kerja tertunggak.

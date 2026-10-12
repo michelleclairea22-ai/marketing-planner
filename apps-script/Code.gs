@@ -12,7 +12,7 @@
  * Setiap permintaan web mesti bawa kunci yang sama dengan ACCESS_KEY.
  * Badan POST ialah JSON bertulis text/plain (supaya pelayar tak buat preflight CORS).
  *
- * Tindakan: ping, list, upsert, delete, setStatus, markRead, markAllRead,
+ * Tindakan: ping, list, upsert, upsertMany, delete, deleteMany, setStatus, markRead, markAllRead,
  *          notesList, noteUpsert, noteDelete, imageUpload, imageGet.
  * Jawapan: { ok: true, ... } atau { ok: false, error: "..." }.
  */
@@ -21,7 +21,8 @@ var TZ = "Asia/Kuala_Lumpur";
 
 var HEADERS = [
   "id", "title", "type", "brand", "date", "time", "notes",
-  "status", "remind", "remindedAt", "readAt", "createdAt", "updatedAt"
+  "status", "remind", "remindedAt", "readAt", "createdAt", "updatedAt",
+  "seriesId", "repeat"
 ];
 
 var TYPES = ["Task", "Event", "Notes", "Posting"];
@@ -101,90 +102,25 @@ function formatMalayDate_(iso) {
   return days[wd] + ", " + d + " " + months[m - 1] + " " + y;
 }
 
+function normalizeRepeat_(value) {
+  var s = String(value || "").trim();
+  return /^(daily|weekly|biweekly|monthly)\|\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+function normalizeSeriesId_(value) {
+  var s = String(value || "").trim();
+  return /^[A-Za-z0-9_-]{1,80}$/.test(s) ? s : "";
+}
+
+// Lajur yang tiada dalam baris tajuk (ikut susunan HEADERS). Logik tulen, diuji.
+function missingHeaders_(current) {
+  var have = {};
+  (current || []).forEach(function (h) { have[String(h || "").trim()] = true; });
+  return HEADERS.filter(function (h) { return !have[h]; });
+}
+
 function oneLine_(value) {
   return String(value || "").replace(/[\u0000-\u001F\u007F]+/g, " ").replace(/ +/g, " ").trim();
-}
-
-function utf8Base64_(text) {
-  var bytes = [];
-  var i;
-  for (i = 0; i < text.length; i++) {
-    var c = text.charCodeAt(i);
-    if (c < 128) bytes.push(c);
-    else if (c < 2048) bytes.push(192 | (c >> 6), 128 | (c & 63));
-    else if (c >= 55296 && c <= 56319 && i + 1 < text.length) {
-      var c2 = text.charCodeAt(i + 1);
-      i += 1;
-      var u = ((c & 1023) << 10 | (c2 & 1023)) + 65536;
-      bytes.push(240 | (u >> 18), 128 | ((u >> 12) & 63), 128 | ((u >> 6) & 63), 128 | (u & 63));
-    } else bytes.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63));
-  }
-  var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  var out = "";
-  for (i = 0; i < bytes.length; i += 3) {
-    var b0 = bytes[i];
-    var b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
-    var b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
-    out += alphabet.charAt(b0 >> 2);
-    out += alphabet.charAt(((b0 & 3) << 4) | (b1 >> 4));
-    out += i + 1 < bytes.length ? alphabet.charAt(((b1 & 15) << 2) | (b2 >> 6)) : "=";
-    out += i + 2 < bytes.length ? alphabet.charAt(b2 & 63) : "=";
-  }
-  return out;
-}
-
-function ntfyHeader_(value) {
-  var text = oneLine_(value);
-  var i;
-  for (i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) > 126) return "=?UTF-8?B?" + utf8Base64_(text) + "?=";
-  }
-  return text;
-}
-
-function ntfyTagForType_(type) {
-  if (type === "Task") return "clipboard";
-  if (type === "Event") return "calendar";
-  if (type === "Notes") return "memo";
-  if (type === "Posting") return "mega";
-  return "bell";
-}
-
-function itemClickUrl_(appUrl, id) {
-  var base = String(appUrl || "").trim();
-  var itemId = String(id || "").trim();
-  if (!base || !itemId) return "";
-  var hash = "";
-  var hashAt = base.indexOf("#");
-  if (hashAt >= 0) {
-    hash = base.slice(hashAt);
-    base = base.slice(0, hashAt);
-  }
-  var joiner = base.indexOf("?") >= 0 ? "&" : "?";
-  return base + joiner + "item=" + encodeURIComponent(itemId) + hash;
-}
-
-function clipNote_(notes) {
-  var note = oneLine_(notes);
-  if (note.length > 180) note = note.slice(0, 180) + "…";
-  return note;
-}
-
-function buildNtfyReminder_(item, appUrl) {
-  var when = formatMalayDate_(item.date);
-  if (item.time) when = when + ", " + item.time;
-  var lines = [];
-  lines.push("Jenama: " + String(item.brand || ""));
-  lines.push("Jenis: " + typeLabel_(item.type));
-  lines.push("Tarikh: " + when);
-  var note = clipNote_(item.notes);
-  if (note) lines.push(note);
-  return {
-    title: "2 hari lagi: " + oneLine_(item.title).slice(0, 140),
-    body: lines.join("\n"),
-    tags: ntfyTagForType_(item.type),
-    click: itemClickUrl_(appUrl, item.id)
-  };
 }
 
 // ----- Web app -----
@@ -218,7 +154,9 @@ function route_(body) {
     }
     if (action === "list") return json_({ ok: true, items: readAllItems_() });
     if (action === "upsert") return json_(upsertFromClient_(body.item || {}));
+    if (action === "upsertMany") return json_(upsertManyFromClient_(body.items));
     if (action === "delete") return json_(deleteFromClient_(body.id));
+    if (action === "deleteMany") return json_(deleteManyFromClient_(body.ids));
     if (action === "setStatus") return json_(setStatus_(body));
     if (action === "markRead") return json_(markRead_(body));
     if (action === "markAllRead") return json_(markAllRead_(body));
@@ -273,7 +211,48 @@ function getItemsSheet_() {
   var ss = SpreadsheetApp.getActive();
   var sheet = ss.getSheetByName("Items");
   if (!sheet) throw new Error("NO_SHEET");
+  ensureItemHeaders_(sheet);
   return sheet;
+}
+
+// Tambah lajur baharu (cth. seriesId, repeat) di hujung tanpa menyentuh data sedia ada.
+function ensureItemHeaders_(sheet) {
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var current = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+    return String(h || "").trim();
+  });
+  var blank = current.every(function (h) { return !h; });
+  if (blank) {
+    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+    return HEADERS.slice();
+  }
+  var missing = missingHeaders_(current);
+  if (!missing.length) return current;
+  while (current.length && !current[current.length - 1]) current.pop();
+  var start = current.length + 1;
+  var needCols = start + missing.length - 1;
+  if (sheet.getMaxColumns() < needCols) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), needCols - sheet.getMaxColumns());
+  }
+  var range = sheet.getRange(1, start, 1, missing.length);
+  range.setValues([missing]);
+  range.setFontWeight("bold");
+  sheet.getRange(1, start, Math.max(sheet.getMaxRows(), 1), missing.length).setNumberFormat("@");
+  return current.concat(missing);
+}
+
+function headerRow_(sheet) {
+  return sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(function (h) {
+    return String(h || "").trim();
+  });
+}
+
+// Baris penuh ikut susunan tajuk dalam helaian. Lajur yang tidak dikenali dikekalkan dari baris lama.
+function rowFor_(headers, item, oldRow) {
+  return headers.map(function (h, i) {
+    if (HEADERS.indexOf(h) < 0) return oldRow ? oldRow[i] : "";
+    return item[h] == null ? "" : String(item[h]);
+  });
 }
 
 function readAllItems_() {
@@ -311,12 +290,14 @@ function findRowById_(sheet, id) {
 
 function writeItem_(item) {
   var sheet = getItemsSheet_();
-  var row = HEADERS.map(function (h) { return item[h] == null ? "" : String(item[h]); });
+  var headers = headerRow_(sheet);
   var rowIndex = findRowById_(sheet, item.id);
+  var oldRow = null;
   if (rowIndex === -1) rowIndex = Math.max(sheet.getLastRow(), 1) + 1;
-  var range = sheet.getRange(rowIndex, 1, 1, HEADERS.length);
+  else oldRow = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+  var range = sheet.getRange(rowIndex, 1, 1, headers.length);
   range.setNumberFormat("@");
-  range.setValues([row]);
+  range.setValues([rowFor_(headers, item, oldRow)]);
   return item;
 }
 
@@ -353,7 +334,9 @@ function normalizeStored_(raw) {
     remindedAt: normalizeStamp_(raw.remindedAt),
     readAt: normalizeStamp_(raw.readAt),
     createdAt: normalizeStamp_(raw.createdAt),
-    updatedAt: normalizeStamp_(raw.updatedAt)
+    updatedAt: normalizeStamp_(raw.updatedAt),
+    seriesId: normalizeSeriesId_(raw.seriesId),
+    repeat: normalizeRepeat_(raw.repeat)
   };
 }
 
@@ -383,7 +366,9 @@ function normalizeIncoming_(raw, existing) {
     remindedAt: normalizeStamp_(raw.remindedAt),
     readAt: normalizeStamp_(raw.readAt),
     createdAt: normalizeStamp_(raw.createdAt) || (existing && existing.createdAt) || now,
-    updatedAt: normalizeStamp_(raw.updatedAt) || now
+    updatedAt: normalizeStamp_(raw.updatedAt) || now,
+    seriesId: normalizeSeriesId_(raw.seriesId),
+    repeat: normalizeRepeat_(raw.repeat)
   };
   return { item: item };
 }
@@ -447,6 +432,68 @@ function upsertFromClient_(raw) {
   });
 }
 
+function upsertManyFromClient_(rawItems) {
+  if (!Array.isArray(rawItems)) return { ok: false, error: "bad_items" };
+  if (rawItems.length > 200) return { ok: false, error: "too_many" };
+  return withLock_(function () {
+    var sheet = getItemsSheet_();
+    var headers = headerRow_(sheet);
+    var existing = {};
+    readAllItems_().forEach(function (it) { existing[it.id] = it; });
+    var normalized = [];
+    var i;
+    for (i = 0; i < rawItems.length; i++) {
+      var raw = rawItems[i] || {};
+      var res = normalizeIncoming_(raw, existing[cellText_(raw.id).trim()] || null);
+      if (res.error) return { ok: false, error: res.error };
+      normalized.push(res.item);
+    }
+    var last = sheet.getLastRow();
+    var values = last >= 2 ? sheet.getRange(2, 1, last - 1, headers.length).getValues() : [];
+    var rowById = {};
+    values.forEach(function (row, idx) { rowById[String(row[0])] = idx; });
+    var appended = [];
+    normalized.forEach(function (item) {
+      var idx = rowById[item.id];
+      if (idx === undefined) {
+        rowById[item.id] = -1;
+        appended.push(rowFor_(headers, item, null));
+        return;
+      }
+      if (idx < 0) return;
+      var range = sheet.getRange(idx + 2, 1, 1, headers.length);
+      range.setNumberFormat("@");
+      range.setValues([rowFor_(headers, item, values[idx])]);
+    });
+    if (appended.length) {
+      var block = sheet.getRange(Math.max(last, 1) + 1, 1, appended.length, headers.length);
+      block.setNumberFormat("@");
+      block.setValues(appended);
+    }
+    return { ok: true, items: normalized };
+  });
+}
+
+function deleteManyFromClient_(ids) {
+  if (!Array.isArray(ids)) return { ok: false, error: "bad_ids" };
+  var wanted = {};
+  ids.forEach(function (id) {
+    var key = String(id || "").trim();
+    if (key) wanted[key] = true;
+  });
+  return withLock_(function () {
+    var sheet = getItemsSheet_();
+    var last = sheet.getLastRow();
+    if (last < 2) return { ok: true, ids: ids };
+    var col = sheet.getRange(2, 1, last - 1, 1).getValues();
+    var r;
+    for (r = col.length - 1; r >= 0; r--) {
+      if (wanted[String(col[r][0])]) sheet.deleteRow(r + 2);
+    }
+    return { ok: true, ids: ids };
+  });
+}
+
 function deleteFromClient_(id) {
   id = String(id || "").trim();
   if (!id) return { ok: false, error: "not_found" };
@@ -505,7 +552,7 @@ function markAllRead_(body) {
   });
 }
 
-// ----- Menu, setup, notifikasi ntfy -----
+// ----- Menu, setup, peringatan (emel dalam Emel.gs) -----
 // OWNER_EMAIL (jika masih ada dari versi lama) tidak dibaca dan tidak digunakan.
 
 function onOpen() {
@@ -531,126 +578,17 @@ function setup() {
       sheet = ss.insertSheet("Items");
     }
   }
-  var current = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0].map(function (h) {
-    return String(h || "");
-  });
-  var same = HEADERS.every(function (h, i) { return current[i] === h; });
-  if (!same) sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+  var headers = ensureItemHeaders_(sheet);
   var rows = Math.max(sheet.getMaxRows(), 200);
-  sheet.getRange(1, 1, rows, HEADERS.length).setNumberFormat("@");
-  sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight("bold");
+  sheet.getRange(1, 1, rows, headers.length).setNumberFormat("@");
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
   sheet.setFrozenRows(1);
-  var widths = [220, 240, 100, 120, 110, 80, 280, 80, 80, 180, 180, 180, 180];
-  widths.forEach(function (width, i) { sheet.setColumnWidth(i + 1, width); });
+  var widths = { id: 220, title: 240, type: 100, brand: 120, date: 110, time: 80, notes: 280, status: 80, remind: 80,
+    remindedAt: 180, readAt: 180, createdAt: 180, updatedAt: 180, seriesId: 220, repeat: 160 };
+  headers.forEach(function (h, i) { if (widths[h]) sheet.setColumnWidth(i + 1, widths[h]); });
   ensureNotesSheet_();
-  var topic = ensureNtfyTopic_();
-  Logger.log("NTFY_TOPIC: " + topic);
-  console.log("NTFY_TOPIC: " + topic);
-  console.log("Setup siap. Tab Items sedia. Zon masa Asia/Kuala_Lumpur. Langgan topik di atas dalam app ntfy (pelayan ntfy.sh).");
-  return "Setup siap. NTFY_TOPIC: " + topic;
-}
-
-function ensureNtfyTopic_() {
-  var props = PropertiesService.getScriptProperties();
-  var topic = String(props.getProperty("NTFY_TOPIC") || "").trim();
-  if (topic) return topic;
-  topic = "content-planner-" + randomTopicSuffix_(16);
-  props.setProperty("NTFY_TOPIC", topic);
-  return topic;
-}
-
-function randomTopicSuffix_(length) {
-  var alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
-  var out = "";
-  var i;
-  for (i = 0; i < length; i++) out += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-  return out;
-}
-
-function installTriggers() {
-  ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    ScriptApp.deleteTrigger(trigger);
-  });
-  ScriptApp.newTrigger("sendTwoDayReminders")
-    .timeBased()
-    .atHour(9)
-    .everyDays(1)
-    .inTimezone(TZ)
-    .create();
-  var topic = String(PropertiesService.getScriptProperties().getProperty("NTFY_TOPIC") || "").trim();
-  console.log("Pemasa lama dipadam. Peringatan ntfy dipasang: setiap hari sekitar jam 9 pagi (Asia/Kuala_Lumpur).");
-  if (!topic) console.log("NTFY_TOPIC belum ada. Jalankan setup, kemudian langgan topik itu dalam app ntfy.");
-  return "Peringatan ntfy dipasang.";
-}
-
-function sendTwoDayReminders() {
-  var topic = String(PropertiesService.getScriptProperties().getProperty("NTFY_TOPIC") || "").trim();
-  if (!topic) {
-    console.log("NTFY_TOPIC kosong. Jalankan setup.");
-    return;
-  }
-  var today = todayKL_(new Date());
-  var url = appUrl_();
-  var due = selectTwoDayReminders(readAllItems_(), today);
-  console.log("Peringatan 2 hari untuk " + addIsoDays_(today, 2) + ": " + due.length + " item.");
-  due.forEach(function (item) {
-    var note = buildNtfyReminder_(item, url);
-    if (!postNtfy_(topic, note)) {
-      console.log("Tak dihantar: " + item.id + " " + item.title);
-      return;
-    }
-    markReminded_(item.id, item.date);
-    console.log("Dihantar: " + item.date + " " + item.title);
-  });
-}
-
-function testNtfy() {
-  var topic = String(PropertiesService.getScriptProperties().getProperty("NTFY_TOPIC") || "").trim();
-  if (!topic) {
-    console.log("NTFY_TOPIC kosong. Jalankan setup.");
-    return "NTFY_TOPIC kosong. Jalankan setup.";
-  }
-  var ok = postNtfy_(topic, {
-    title: "Content Planner: notifikasi berjaya",
-    body: "Content Planner: notifikasi berjaya",
-    tags: "white_check_mark",
-    click: appUrl_()
-  });
-  if (!ok) return "Notifikasi ujian gagal. Lihat log.";
-  console.log("Notifikasi ujian dihantar. Semak telefon.");
-  return "Notifikasi ujian dihantar.";
-}
-
-function postNtfy_(topic, note) {
-  var safeTopic = String(topic || "").trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(safeTopic)) {
-    console.log("NTFY_TOPIC tidak sah.");
-    return false;
-  }
-  var headers = {
-    Title: ntfyHeader_(note.title),
-    Tags: ntfyHeader_(note.tags)
-  };
-  if (note.click) headers.Click = oneLine_(note.click);
-  var response;
-  try {
-    response = UrlFetchApp.fetch("https://ntfy.sh/" + safeTopic, {
-      method: "post",
-      contentType: "text/plain; charset=utf-8",
-      payload: String(note.body || ""),
-      headers: headers,
-      muteHttpExceptions: true
-    });
-  } catch (err) {
-    console.log("ntfy gagal: " + String(err && err.message ? err.message : err));
-    return false;
-  }
-  var code = response.getResponseCode();
-  if (code < 200 || code >= 300) {
-    console.log("ntfy gagal HTTP " + code + " " + String(response.getContentText() || "").slice(0, 300));
-    return false;
-  }
-  return true;
+  Logger.log("Setup siap. Tab Items dan Notes sedia. Zon masa Asia/Kuala_Lumpur.");
+  return "Setup siap.";
 }
 
 function markReminded_(id, itemDate) {

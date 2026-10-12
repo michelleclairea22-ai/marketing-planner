@@ -45,14 +45,12 @@ function loadGas() {
     "typeLabel_",
     "formatMalayDate_",
     "oneLine_",
-    "utf8Base64_",
-    "ntfyHeader_",
-    "ntfyTagForType_",
-    "itemClickUrl_",
-    "clipNote_",
-    "buildNtfyReminder_",
+    "normalizeRepeat_",
+    "normalizeSeriesId_",
+    "missingHeaders_",
   ];
-  const body = names.map((name) => extractFunction(src, name)).join("\n");
+  const headers = src.slice(src.indexOf("var HEADERS"), src.indexOf("];", src.indexOf("var HEADERS")) + 2);
+  const body = headers + "\n" + names.map((name) => extractFunction(src, name)).join("\n");
   return new Function(`${body}\nreturn { ${names.join(", ")} };`)();
 }
 
@@ -123,28 +121,17 @@ const picked = gas.selectTwoDayReminders([
 ], "2026-10-08");
 assert.deepEqual(picked.map((item) => item.id), ["abc", "notime"]);
 
-const note = gas.buildNtfyReminder_(target, "https://contoh.github.io/marketing-planner/");
-assert.equal(note.title, "2 hari lagi: Reel");
-assert.match(note.body, /Jenama: Brutti/);
-assert.match(note.body, /Jenis: Posting/);
-assert.match(note.body, /Tarikh: Sabtu, 10 Oktober 2026, 09:00/);
-assert.match(note.body, /Hook/);
-assert.equal(note.tags, "mega");
-assert.equal(note.click, "https://contoh.github.io/marketing-planner/?item=abc");
-const noTime = gas.buildNtfyReminder_(reminderItem({ time: "", notes: "" }), "https://contoh.github.io/marketing-planner/");
-assert.match(noTime.body, /Tarikh: Sabtu, 10 Oktober 2026/);
-assert.doesNotMatch(noTime.body, /09:00/);
-assert.equal(gas.buildNtfyReminder_(target, "").click, "");
-assert.equal(gas.itemClickUrl_("https://contoh.github.io/marketing-planner/?x=1#bulan", "a b"), "https://contoh.github.io/marketing-planner/?x=1&item=a%20b#bulan");
-const longNote = gas.buildNtfyReminder_(reminderItem({ notes: "a".repeat(200) }), "https://contoh.github.io/marketing-planner/");
-assert.match(longNote.body, /a{180}…/);
-assert.doesNotMatch(longNote.body, /a{181}/);
-assert.equal(gas.ntfyTagForType_("Task"), "clipboard");
-assert.equal(gas.ntfyTagForType_("Event"), "calendar");
-assert.equal(gas.ntfyTagForType_("Notes"), "memo");
-assert.equal(gas.ntfyHeader_("2 hari lagi: Reel"), "2 hari lagi: Reel");
-assert.equal(gas.ntfyHeader_("Äpfel"), "=?UTF-8?B?w4RwZmVs?=");
-assert.equal(gas.ntfyHeader_("a\nb"), "a b");
+// Lajur baharu untuk item berulang, ditambah di hujung helaian lama.
+const oldHeaders = ["id", "title", "type", "brand", "date", "time", "notes", "status", "remind", "remindedAt", "readAt", "createdAt", "updatedAt"];
+assert.deepEqual(gas.missingHeaders_(oldHeaders), ["seriesId", "repeat"]);
+assert.deepEqual(gas.missingHeaders_([...oldHeaders, "seriesId", "repeat"]), []);
+assert.deepEqual(gas.missingHeaders_([...oldHeaders, "lain", "repeat"]), ["seriesId"]);
+assert.equal(gas.normalizeRepeat_("weekly|2026-12-31"), "weekly|2026-12-31");
+assert.equal(gas.normalizeRepeat_("biweekly|2026-12-31"), "biweekly|2026-12-31");
+assert.equal(gas.normalizeRepeat_("yearly|2026-12-31"), "");
+assert.equal(gas.normalizeRepeat_("weekly"), "");
+assert.equal(gas.normalizeSeriesId_("abc-1_2"), "abc-1_2");
+assert.equal(gas.normalizeSeriesId_("a b"), "");
 
 const today = "2026-10-08";
 const stamp = "2026-10-08T08:00:00+08:00";
@@ -207,24 +194,28 @@ assert.equal(manifest.name, "Content Planner");
 assert.equal(manifest.short_name, "Content Planner");
 assert.equal(appsscript.timeZone, "Asia/Kuala_Lumpur");
 assert.doesNotMatch(gs, /MailApp|GmailApp|sendEmail/);
-assert.match(gs, /https:\/\/ntfy\.sh\//);
-assert.match(gs, /muteHttpExceptions:\s*true/);
-assert.match(gs, /NTFY_TOPIC/);
-assert.match(gs, /Content Planner: notifikasi berjaya/);
-const install = extractFunction(gs, "installTriggers");
-assert.match(install, /getProjectTriggers/);
-assert.match(install, /deleteTrigger/);
-assert.match(install, /sendTwoDayReminders/);
-assert.match(install, /atHour\(9\)/);
-assert.doesNotMatch(install, /everyMinutes|sendDailyDigest|OWNER_EMAIL/);
-const setupSrc = extractFunction(gs, "setup");
-const topicSrc = extractFunction(gs, "ensureNtfyTopic_");
-assert.match(setupSrc, /ensureNtfyTopic_/);
-assert.match(setupSrc, /Logger\.log/);
-assert.match(topicSrc, /content-planner-/);
-assert.match(topicSrc, /randomTopicSuffix_\(16\)/);
-assert.ok(appsscript.oauthScopes.includes("https://www.googleapis.com/auth/script.external_request"));
+// ntfy lama dibuang; emel (Emel.gs) kekal.
+assert.doesNotMatch(gs, /ntfy|NTFY_TOPIC|UrlFetchApp|installTriggers|sendTwoDayReminders|testNtfy/);
+assert.ok(!appsscript.oauthScopes.includes("https://www.googleapis.com/auth/script.external_request"));
 assert.ok(!appsscript.oauthScopes.includes("https://www.googleapis.com/auth/script.send_mail"));
+assert.ok(appsscript.oauthScopes.includes("https://mail.google.com/"));
+assert.ok(appsscript.oauthScopes.includes("https://www.googleapis.com/auth/script.scriptapp"));
+const setupSrc = extractFunction(gs, "setup");
+assert.match(setupSrc, /ensureItemHeaders_/);
+assert.match(setupSrc, /ensureNotesSheet_/);
+assert.doesNotMatch(setupSrc, /NTFY|ntfy/);
+assert.match(extractFunction(gs, "getItemsSheet_"), /ensureItemHeaders_/);
+assert.match(gs, /"seriesId", "repeat"/);
+for (const action of ["upsertMany", "deleteMany"]) {
+  assert.match(gs, new RegExp(`action === "${action}"`));
+  assert.match(api, new RegExp(`"${action}"`));
+}
+const emel = fs.readFileSync(path.join(root, "apps-script/Emel.gs"), "utf8");
+for (const helper of ["formatMalayDate_", "typeLabel_", "appUrl_", "todayKL_", "selectTwoDayReminders", "shouldRemindItem", "alreadyRemindedFor_", "readAllItems_", "markReminded_", "addIsoDays_"]) {
+  assert.match(gs, new RegExp(`function ${helper}\\(`), `Code.gs mesti ada ${helper} untuk Emel.gs`);
+}
+assert.match(gs, /var TZ = "Asia\/Kuala_Lumpur"/);
+assert.match(emel, /runEmailReminders/);
 assert.match(html, /<title>Content Planner<\/title>/);
 assert.match(html, /src="\.\/icons\/icon-192\.png"/);
 assert.doesNotMatch(html, /(?:href|src)="\//);
@@ -300,7 +291,9 @@ assert.match(appSrc, /Ingatkan saya\. Email 2 hari sebelum\./);
 assert.doesNotMatch(appSrc, /ntfy|Notifikasi ke telefon/);
 assert.match(appSrc, /searchParams\.get\("item"\)/);
 assert.doesNotMatch(appSrc, /30 minit|Emel /);
-assert.match(sw, /content-planner-v6/);
+assert.match(sw, /content-planner-v7/);
+assert.doesNotMatch(sw, /content-planner-v6/);
+assert.match(sw, /recur\.js/);
 assert.doesNotMatch(sw, /content-planner-v4/);
 assert.doesNotMatch(sw, /content-planner-v1/);
 assert.doesNotMatch(sw, /content-planner-v2/);

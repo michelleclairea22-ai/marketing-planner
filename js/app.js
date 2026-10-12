@@ -5,9 +5,21 @@ import {
   apiMarkRead,
   apiPing,
   apiSetStatus,
+  apiDeleteItems,
   apiUpsert,
+  apiUpsertItems,
   cleanWebAppUrl,
 } from "./api.js";
+import {
+  MAX_OCCURRENCES,
+  REPEAT_OPTIONS,
+  occurrenceDates,
+  parseRepeat,
+  planSave,
+  repeatErrorText,
+  repeatLabel,
+  seriesTargets,
+} from "./recur.js";
 import { typeIcon } from "./icons.js";
 import {
   BRANDS,
@@ -86,7 +98,14 @@ const state = {
   syncing: false,
   editing: null,
   confirmDelete: false,
+  pendingForm: null,
 };
+
+const REPEAT_ICON = `<svg class="rep-ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-label="Berulang"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>`;
+
+function repeatMark(item) {
+  return item.seriesId ? `<span class="rep" title="${esc(repeatLabel(item.repeat) || "Berulang")}">${REPEAT_ICON}</span>` : "";
+}
 
 function configured() {
   return isConfigured(state.settings);
@@ -179,7 +198,7 @@ function chipHtml(item) {
   return `<button type="button" class="chip ${done}" data-open="${esc(item.id)}" style="--b:${brandColor(item.brand)}" title="${esc(item.title)}">
     <span class="dot"></span>
     <span class="ti">${typeIcon(item.type)}</span>
-    <span class="tt">${esc(item.title)}</span>
+    <span class="tt">${esc(item.title)}</span>${repeatMark(item)}
   </button>`;
 }
 
@@ -191,7 +210,7 @@ function itemRow(item, opts = {}) {
   return `<article class="row-item ${done ? "is-done" : ""} ${opts.showDate ? "is-dated" : ""}">
     <div class="row-time">${esc(timeLabel)}</div>
     <button type="button" class="row-open" data-open="${esc(item.id)}">
-      <span class="row-title">${esc(item.title)}</span>
+      <span class="row-title">${esc(item.title)}${repeatMark(item)}</span>
       ${item.notes ? `<p class="row-notes">${esc(item.notes)}</p>` : ""}
       <span class="badges">
         <span class="badge-soft"><i class="dot" style="background:${brandColor(item.brand)}"></i>${esc(item.brand)}</span>
@@ -457,6 +476,8 @@ function openEditor(id, dateOverride) {
     status: "Belum",
     remind: "off",
   };
+  const rule = parseRepeat(item.repeat) || { freq: "", until: "" };
+  state.pendingForm = null;
   const modal = document.getElementById("modal");
   modal.innerHTML = `<button type="button" class="backdrop" data-close-modal aria-label="Tutup"></button>
     <form class="dialog" id="item-form">
@@ -473,6 +494,10 @@ function openEditor(id, dateOverride) {
         <label class="field"><span>Tarikh</span><input id="f-date" type="date" required value="${esc(item.date)}"></label>
         <label class="field"><span>Masa (pilihan)</span><input id="f-time" type="time" value="${esc(item.time)}"></label>
       </div>
+      <div class="form-row">
+        <label class="field"><span>Ulang</span><select id="f-repeat" data-testid="f-repeat">${REPEAT_OPTIONS.map((o) => `<option value="${o.id}"${o.id === rule.freq ? " selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>
+        <label class="field" id="f-until-wrap"${rule.freq ? "" : " hidden"}><span>Hingga</span><input id="f-until" type="date" value="${esc(rule.until)}"></label>
+      </div>
       <label class="field"><span>Nota</span><textarea id="f-notes" maxlength="4000">${esc(item.notes)}</textarea></label>
       <label class="field"><span>Status</span>
         <select id="f-status">
@@ -482,7 +507,7 @@ function openEditor(id, dateOverride) {
       </label>
       <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Email 2 hari sebelum.</span></label>
       <p class="form-error" id="form-error"></p>
-      <div class="dialog-actions">
+      <div class="dialog-actions" id="dialog-actions">
         ${existing ? `<button type="button" class="btn-danger" id="btn-delete">Padam</button>` : ""}
         <span class="spacer"></span>
         <button type="button" class="btn-ghost" data-close-modal>Batal</button>
@@ -503,45 +528,73 @@ function closeModal() {
   modal.innerHTML = "";
   state.editing = null;
   state.confirmDelete = false;
+  state.pendingForm = null;
+}
+
+function showScopeChoice(kind) {
+  const box = document.getElementById("dialog-actions");
+  if (!box) return;
+  const edit = kind === "edit";
+  box.classList.add("is-scope");
+  box.innerHTML = `<p class="scope-q">${edit ? "Item ini sebahagian daripada siri berulang." : "Padam item berulang?"}</p>
+    <button type="button" class="${edit ? "btn-primary" : "btn-danger"}" data-scope="${kind}:one">${edit ? "Ubah item ini sahaja" : "Padam ini sahaja"}</button>
+    <button type="button" class="${edit ? "btn-ghost" : "btn-danger"}" data-scope="${kind}:future">${edit ? "Ubah semua item akan datang dalam siri ini" : "Padam semua akan datang"}</button>
+    <button type="button" class="btn-ghost" data-close-modal>Batal</button>`;
+  box.scrollIntoView({ block: "end" });
+}
+
+function readForm() {
+  const title = document.getElementById("f-title").value.trim();
+  const date = document.getElementById("f-date").value;
+  if (!title) return { error: "Isi tajuk." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Pilih tarikh." };
+  const freq = document.getElementById("f-repeat").value;
+  const until = document.getElementById("f-until").value;
+  if (freq) {
+    const check = occurrenceDates(date, freq, until, MAX_OCCURRENCES);
+    if (check.error) return { error: repeatErrorText(check.error) };
+  }
+  return {
+    fields: {
+      title,
+      type: document.getElementById("f-type").value,
+      brand: document.getElementById("f-brand").value,
+      date,
+      time: document.getElementById("f-time").value || "",
+      notes: document.getElementById("f-notes").value.trim(),
+      status: document.getElementById("f-status").value === "Siap" ? "Siap" : "Belum",
+      remind: document.getElementById("f-remind").checked ? "on" : "off",
+    },
+    freq,
+    until,
+  };
 }
 
 function submitForm() {
-  const title = document.getElementById("f-title").value.trim();
-  const date = document.getElementById("f-date").value;
   const error = document.getElementById("form-error");
-  if (!title) {
-    error.textContent = "Isi tajuk.";
+  const form = readForm();
+  if (form.error) {
+    error.textContent = form.error;
     return;
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    error.textContent = "Pilih tarikh.";
+  error.textContent = "";
+  if (state.editing?.seriesId) {
+    state.pendingForm = form;
+    showScopeChoice("edit");
     return;
   }
-  const prev = state.editing;
-  const stamp = nowIsoKL();
-  const next = {
-    id: prev?.id || newId(),
-    title,
-    type: document.getElementById("f-type").value,
-    brand: document.getElementById("f-brand").value,
-    date,
-    time: document.getElementById("f-time").value || "",
-    notes: document.getElementById("f-notes").value.trim(),
-    status: document.getElementById("f-status").value === "Siap" ? "Siap" : "Belum",
-    remind: document.getElementById("f-remind").checked ? "on" : "off",
-    remindedAt: prev?.remindedAt || "",
-    readAt: prev?.readAt || "",
-    createdAt: prev?.createdAt || stamp,
-    updatedAt: stamp,
-  };
-  if (prev && (prev.date !== next.date || prev.time !== next.time)) next.readAt = "";
-  if (prev && prev.date !== next.date) next.remindedAt = "";
-  if (prev && prev.remind !== next.remind) next.remindedAt = "";
-  state.selectedDate = next.date;
-  if (state.view === "bulan" || state.view === "minggu" || state.view === "senarai") state.cursor = next.date;
+  applyForm(form, "one");
+}
+
+function applyForm(form, scope) {
+  const plan = planSave(state.items, state.editing, form, scope, { stamp: nowIsoKL(), newId });
+  const first = plan.upserts[0];
+  state.selectedDate = first.date;
+  if (state.view === "bulan" || state.view === "minggu" || state.view === "senarai") state.cursor = first.date;
   closeModal();
-  persistItem(next);
-  toast("Disimpan");
+  if (plan.upserts.length === 1 && !plan.deletes.length) persistItem(first);
+  else persistMany(plan.upserts, plan.deletes);
+  toast(plan.upserts.length > 1 ? `Disimpan (${plan.upserts.length} item)` : "Disimpan");
 }
 
 function saveLocalItem(item) {
@@ -609,6 +662,49 @@ async function persistItem(item) {
     await markSynced();
   } catch (err) {
     enqueueUpsert(item);
+    state.mode = "pending";
+    state.syncError = mapError(err);
+    updateChrome();
+    toast(state.syncError);
+  }
+}
+
+async function persistMany(upserts, deletes = []) {
+  const stamp = nowIsoKL();
+  const gone = new Set(deletes);
+  const byId = new Map(loadItems().filter((row) => !gone.has(row.id)).map((row) => [row.id, row]));
+  for (const item of upserts) byId.set(item.id, item);
+  const items = [...byId.values()];
+  saveItems(items);
+  state.items = items;
+  if (deletes.length) {
+    const tombs = loadTombs();
+    for (const id of deletes) tombs[id] = stamp;
+    saveTombs(tombs);
+  }
+  for (const item of upserts) dropOutboxFor(item.id);
+  for (const id of deletes) dropOutboxFor(id);
+  refreshViews();
+  updateChrome();
+  if (!configured()) {
+    state.mode = "demo";
+    updateChrome();
+    return;
+  }
+  try {
+    state.mode = "syncing";
+    updateChrome();
+    if (upserts.length) await apiUpsertItems(state.settings, upserts);
+    if (deletes.length) {
+      await apiDeleteItems(state.settings, deletes);
+      const left = loadTombs();
+      for (const id of deletes) delete left[id];
+      saveTombs(left);
+    }
+    await markSynced();
+  } catch (err) {
+    for (const item of upserts) enqueueUpsert(item);
+    for (const id of deletes) enqueueDelete(id);
     state.mode = "pending";
     state.syncError = mapError(err);
     updateChrome();
@@ -715,16 +811,22 @@ async function persistDelete(id) {
 
 async function flushOutbox() {
   const box = discardSampleQueue().filter((op) => !(op.op === "upsert" && isSampleId(op.item?.id)));
-  for (let i = 0; i < box.length; i += 1) {
+  let i = 0;
+  while (i < box.length) {
     const op = box[i];
+    let j = i + 1;
+    if (op.op === "upsert" || op.op === "delete") {
+      while (j < box.length && box[j].op === op.op) j += 1;
+    }
     try {
-      if (op.op === "upsert") await apiUpsert(state.settings, op.item);
-      else if (op.op === "delete") await apiDelete(state.settings, op.id);
+      if (op.op === "upsert") await apiUpsertItems(state.settings, box.slice(i, j).map((row) => row.item));
+      else if (op.op === "delete") await apiDeleteItems(state.settings, box.slice(i, j).map((row) => row.id));
       else if (op.op === "markAllRead") await apiMarkAllRead(state.settings, op.ids, op.readAt);
     } catch (err) {
       saveOutbox(box.slice(i));
       throw err;
     }
+    i = j;
   }
   saveOutbox([]);
 }
@@ -776,13 +878,13 @@ async function pushAndPull(settings) {
     if (isSampleId(id)) delete tombs[id];
   }
   const merged = withoutSamples(mergeItems(local, remote, tombs));
+  const toPush = [];
   for (const item of merged) {
     if (isSampleId(item.id)) continue;
     const remoteItem = remote.find((row) => row.id === item.id);
-    if (!remoteItem || (item.updatedAt || "") > (remoteItem.updatedAt || "")) {
-      await apiUpsert(settings, item);
-    }
+    if (!remoteItem || (item.updatedAt || "") > (remoteItem.updatedAt || "")) toPush.push(item);
   }
+  if (toPush.length) await apiUpsertItems(settings, toPush);
   for (const [id, at] of Object.entries(tombs)) {
     if (isSampleId(id)) continue;
     const remoteItem = remote.find((row) => row.id === id);
@@ -1003,12 +1105,29 @@ function onClick(event) {
   }
   if (event.target.closest("#btn-delete")) {
     const button = event.target.closest("#btn-delete");
+    if (state.editing?.seriesId) {
+      showScopeChoice("delete");
+      return;
+    }
     if (!state.confirmDelete) {
       state.confirmDelete = true;
       button.textContent = "Pasti padam?";
       return;
     }
     if (state.editing?.id) persistDelete(state.editing.id);
+    return;
+  }
+  const scopeBtn = event.target.closest("[data-scope]");
+  if (scopeBtn) {
+    const [kind, scope] = scopeBtn.dataset.scope.split(":");
+    if (kind === "edit" && state.pendingForm) {
+      applyForm(state.pendingForm, scope);
+    } else if (kind === "delete" && state.editing) {
+      const ids = seriesTargets(state.items, state.editing, scope).map((row) => row.id);
+      closeModal();
+      persistMany([], ids);
+      toast(ids.length > 1 ? `Dipadam (${ids.length} item)` : "Dipadam");
+    }
     return;
   }
   const addDate = event.target.closest("[data-add-date]");
@@ -1135,6 +1254,10 @@ function bind() {
     submitForm();
   });
   document.body.addEventListener("change", (event) => {
+    if (event.target.id === "f-repeat") {
+      const wrap = document.getElementById("f-until-wrap");
+      if (wrap) wrap.hidden = !event.target.value;
+    }
     if (event.target.id === "f-brand") {
       const dot = document.getElementById("brand-dot");
       if (dot) dot.style.background = brandColor(event.target.value);

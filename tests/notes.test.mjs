@@ -87,9 +87,10 @@ for (const helper of ["formatMalayDate_", "typeLabel_", "appUrl_", "todayKL_", "
 }
 assert.match(gs, /var TZ = /);
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "apps-script/appsscript.json"), "utf8"));
-for (const scope of ["spreadsheets.currentonly", "script.external_request", "script.scriptapp", "https://mail.google.com/", "userinfo.email", "https://www.googleapis.com/auth/drive"]) {
+for (const scope of ["spreadsheets.currentonly", "script.scriptapp", "https://mail.google.com/", "userinfo.email", "https://www.googleapis.com/auth/drive"]) {
   assert.ok(manifest.oauthScopes.some((s) => s.includes(scope)), scope);
 }
+assert.ok(!manifest.oauthScopes.some((s) => s.includes("script.external_request")), "external_request not needed");
 
 // Client wiring
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");

@@ -63,6 +63,8 @@ export function normalizeItem(raw) {
     readAt: String(raw.readAt || ""),
     createdAt: String(raw.createdAt || ""),
     updatedAt: String(raw.updatedAt || ""),
+    seriesId: /^[A-Za-z0-9_-]{1,80}$/.test(String(raw.seriesId || "")) ? String(raw.seriesId) : "",
+    repeat: /^(daily|weekly|biweekly|monthly)\|\d{4}-\d{2}-\d{2}$/.test(String(raw.repeat || "")) ? String(raw.repeat) : "",
   };
 }
 

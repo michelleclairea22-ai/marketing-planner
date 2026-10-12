@@ -857,3 +857,26 @@ body.is-drawing { overflow: hidden; overscroll-behavior: none; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto; }
 }
+
+/* Item berulang */
+.rep { display: inline-flex; align-items: center; color: var(--muted); flex: 0 0 auto; margin-left: 4px; vertical-align: middle; }
+.rep-ic { display: block; }
+.chip .rep { margin-left: 2px; }
+.dialog-actions.is-scope { flex-direction: column; align-items: stretch; }
+.dialog-actions.is-scope button { width: 100%; }
+.scope-q { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+.field[hidden] { display: none; }
+.chip { position: relative; overflow: hidden; }
+.chip .tt { flex: 1 1 auto; }
+@media (max-width: 700px) {
+  .month .chip .rep {
+    position: absolute;
+    right: 1px;
+    top: 1px;
+    margin: 0;
+    padding: 1px;
+    border-radius: 3px;
+    background: var(--chip);
+  }
+  .month .chip .rep-ic { width: 9px; height: 9px; }
+}
