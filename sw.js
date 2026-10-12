@@ -1,4 +1,4 @@
-const CACHE = "content-planner-v4";
+const CACHE = "content-planner-v5";
 
 const ASSETS = [
   "./",
@@ -11,6 +11,10 @@ const ASSETS = [
   "./js/storage.js",
   "./js/api.js",
   "./js/icons.js",
+  "./js/notes.js",
+  "./js/notes-ui.js",
+  "./js/draw.js",
+  "./js/imgstore.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

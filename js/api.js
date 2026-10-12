@@ -2,7 +2,8 @@
 // POST text/plain JSON to the Web App URL. No custom headers (avoids CORS preflight).
 // Apps Script answers with a redirect; fetch follows it and reads the JSON body.
 //
-// Actions: ping, list, upsert, delete, setStatus, markRead, markAllRead
+// Actions: ping, list, upsert, delete, setStatus, markRead, markAllRead,
+//          notesList, noteUpsert, noteDelete, imageUpload, imageGet
 // Body always includes { action, key }.
 // Success: { ok: true, ... }  Failure: { ok: false, error }
 
@@ -63,3 +64,8 @@ export const apiDelete = (s, id) => callApi(s, "delete", { id });
 export const apiSetStatus = (s, id, status, updatedAt) => callApi(s, "setStatus", { id, status, updatedAt });
 export const apiMarkRead = (s, id, readAt) => callApi(s, "markRead", { id, readAt });
 export const apiMarkAllRead = (s, ids, readAt) => callApi(s, "markAllRead", { ids, readAt });
+export const apiNotesList = (s) => callApi(s, "notesList");
+export const apiNoteUpsert = (s, note) => callApi(s, "noteUpsert", { note });
+export const apiNoteDelete = (s, id) => callApi(s, "noteDelete", { id });
+export const apiImageUpload = (s, dataUrl, name) => callApi(s, "imageUpload", { dataUrl, name });
+export const apiImageGet = (s, fileId) => callApi(s, "imageGet", { fileId });

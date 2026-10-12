@@ -5,14 +5,15 @@
  * 1. Tampal fail ini ke Code.gs (ganti semua).
  * 2. Tampal appsscript.json.
  * 3. Script properties: ACCESS_KEY dan APP_URL (huruf besar tepat).
- * 4. Jalankan setup. Log menunjukkan NTFY_TOPIC. Langgan topik itu dalam app ntfy.
+ * 4. Tambah Emel.gs (peringatan emel). Jalankan setup (buat tab Items dan Notes).
  * 5. Deploy > Web app > Execute as: Me > Who has access: Anyone.
- * 6. Jalankan installTriggers (sekali). Kemudian testNtfy.
+ * 6. Jalankan installEmailTriggers (sekali). Kemudian testEmail.
  *
  * Setiap permintaan web mesti bawa kunci yang sama dengan ACCESS_KEY.
  * Badan POST ialah JSON bertulis text/plain (supaya pelayar tak buat preflight CORS).
  *
- * Tindakan: ping, list, upsert, delete, setStatus, markRead, markAllRead.
+ * Tindakan: ping, list, upsert, delete, setStatus, markRead, markAllRead,
+ *          notesList, noteUpsert, noteDelete, imageUpload, imageGet.
  * Jawapan: { ok: true, ... } atau { ok: false, error: "..." }.
  */
 
@@ -221,6 +222,11 @@ function route_(body) {
     if (action === "setStatus") return json_(setStatus_(body));
     if (action === "markRead") return json_(markRead_(body));
     if (action === "markAllRead") return json_(markAllRead_(body));
+    if (action === "notesList") return json_({ ok: true, notes: readAllNotes_() });
+    if (action === "noteUpsert") return json_(noteUpsert_(body.note || {}));
+    if (action === "noteDelete") return json_(noteDelete_(body.id));
+    if (action === "imageUpload") return json_(imageUpload_(body));
+    if (action === "imageGet") return json_(imageGet_(body.fileId));
     return json_({ ok: false, error: "unknown_action" });
   } catch (err) {
     var message = String(err && err.message ? err.message : err);
@@ -506,8 +512,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("Content Planner")
     .addItem("1. Setup helaian", "setup")
-    .addItem("2. Pasang peringatan ntfy", "installTriggers")
-    .addItem("Uji notifikasi ntfy", "testNtfy")
+    .addItem("2. Pasang peringatan emel", "installEmailTriggers")
+    .addItem("Uji emel peringatan", "testEmail")
     .addItem("Pratonton peringatan 2 hari (log)", "previewTwoDayReminders")
     .addToUi();
 }
@@ -536,6 +542,7 @@ function setup() {
   sheet.setFrozenRows(1);
   var widths = [220, 240, 100, 120, 110, 80, 280, 80, 80, 180, 180, 180, 180];
   widths.forEach(function (width, i) { sheet.setColumnWidth(i + 1, width); });
+  ensureNotesSheet_();
   var topic = ensureNtfyTopic_();
   Logger.log("NTFY_TOPIC: " + topic);
   console.log("NTFY_TOPIC: " + topic);
@@ -670,4 +677,183 @@ function previewTwoDayReminders() {
   });
   console.log(lines.join("\n"));
   return lines.join("\n");
+}
+
+// ----- Nota (tab Notes) dan gambar (Drive) -----
+
+var NOTE_HEADERS = ["id", "title", "brand", "body", "images", "createdAt", "updatedAt"];
+var NOTES_FOLDER = "Content Planner Notes";
+
+function ensureNotesSheet_() {
+  var ss = SpreadsheetApp.getActive();
+  var sheet = ss.getSheetByName("Notes");
+  if (!sheet) sheet = ss.insertSheet("Notes");
+  var current = sheet.getRange(1, 1, 1, NOTE_HEADERS.length).getValues()[0].map(function (h) {
+    return String(h || "");
+  });
+  var same = NOTE_HEADERS.every(function (h, i) { return current[i] === h; });
+  if (!same) {
+    sheet.getRange(1, 1, 1, NOTE_HEADERS.length).setValues([NOTE_HEADERS]);
+    sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 200), NOTE_HEADERS.length).setNumberFormat("@");
+    sheet.getRange(1, 1, 1, NOTE_HEADERS.length).setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function parseNoteImages_(value) {
+  var list = value;
+  if (typeof value === "string") {
+    try {
+      list = value ? JSON.parse(value) : [];
+    } catch (err) {
+      list = [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  var out = [];
+  list.forEach(function (img) {
+    if (!img || typeof img !== "object") return;
+    var id = String(img.id || "").trim();
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return;
+    out.push({
+      id: id,
+      fileId: String(img.fileId || "").trim(),
+      annotFileId: String(img.annotFileId || "").trim(),
+      w: Math.max(0, Math.round(Number(img.w) || 0)),
+      h: Math.max(0, Math.round(Number(img.h) || 0))
+    });
+  });
+  return out.slice(0, 30);
+}
+
+function normalizeNote_(raw, existing) {
+  raw = raw || {};
+  var id = cellText_(raw.id).trim();
+  if (!id || !/^[A-Za-z0-9_-]{1,80}$/.test(id)) return null;
+  var brand = cellText_(raw.brand).trim();
+  if (BRANDS.indexOf(brand) < 0) brand = "";
+  var now = nowIsoKL_(new Date());
+  return {
+    id: id,
+    title: cellText_(raw.title).trim().slice(0, 200),
+    brand: brand,
+    body: cellText_(raw.body).slice(0, 20000),
+    images: parseNoteImages_(raw.images),
+    createdAt: normalizeStamp_(raw.createdAt) || (existing && existing.createdAt) || now,
+    updatedAt: normalizeStamp_(raw.updatedAt) || now
+  };
+}
+
+function readAllNotes_() {
+  var sheet = ensureNotesSheet_();
+  var values = sheet.getDataRange().getValues();
+  var out = [];
+  var r;
+  for (r = 1; r < values.length; r++) {
+    var obj = {};
+    NOTE_HEADERS.forEach(function (h, i) { obj[h] = values[r][i]; });
+    var note = normalizeNote_(obj, null);
+    if (note) out.push(note);
+  }
+  return out;
+}
+
+function noteFileIds_(note) {
+  var ids = [];
+  (note && note.images ? note.images : []).forEach(function (img) {
+    if (img.fileId) ids.push(img.fileId);
+    if (img.annotFileId) ids.push(img.annotFileId);
+  });
+  return ids;
+}
+
+function trashFiles_(ids) {
+  ids.forEach(function (fileId) {
+    try {
+      DriveApp.getFileById(fileId).setTrashed(true);
+    } catch (err) {
+      console.log("Gagal buang fail " + fileId + ": " + err);
+    }
+  });
+}
+
+function noteUpsert_(raw) {
+  return withLock_(function () {
+    var sheet = ensureNotesSheet_();
+    var id = cellText_(raw && raw.id).trim();
+    var existing = readAllNotes_().filter(function (n) { return n.id === id; })[0] || null;
+    var note = normalizeNote_(raw, existing);
+    if (!note) return { ok: false, error: "bad_id" };
+    if (existing && (existing.updatedAt || "") > (note.updatedAt || "")) {
+      return { ok: true, note: existing, stale: true };
+    }
+    var row = NOTE_HEADERS.map(function (h) {
+      return h === "images" ? JSON.stringify(note.images) : String(note[h] == null ? "" : note[h]);
+    });
+    var rowIndex = findRowById_(sheet, note.id);
+    if (rowIndex === -1) rowIndex = Math.max(sheet.getLastRow(), 1) + 1;
+    var range = sheet.getRange(rowIndex, 1, 1, NOTE_HEADERS.length);
+    range.setNumberFormat("@");
+    range.setValues([row]);
+    if (existing) {
+      var keep = {};
+      noteFileIds_(note).forEach(function (f) { keep[f] = true; });
+      trashFiles_(noteFileIds_(existing).filter(function (f) { return !keep[f]; }));
+    }
+    return { ok: true, note: note };
+  });
+}
+
+function noteDelete_(id) {
+  id = String(id || "").trim();
+  if (!id) return { ok: false, error: "not_found" };
+  return withLock_(function () {
+    var sheet = ensureNotesSheet_();
+    var note = readAllNotes_().filter(function (n) { return n.id === id; })[0];
+    var rowIndex = findRowById_(sheet, id);
+    if (rowIndex !== -1) sheet.deleteRow(rowIndex);
+    if (note) trashFiles_(noteFileIds_(note));
+    return { ok: true, id: id };
+  });
+}
+
+function notesFolder_() {
+  var it = DriveApp.getFoldersByName(NOTES_FOLDER);
+  while (it.hasNext()) {
+    var folder = it.next();
+    if (!folder.isTrashed()) return folder;
+  }
+  return DriveApp.createFolder(NOTES_FOLDER);
+}
+
+function imageUpload_(body) {
+  var data = String(body.dataUrl || body.base64 || "");
+  var mimeType = String(body.mimeType || "");
+  var comma = data.indexOf(",");
+  if (data.slice(0, 5) === "data:" && comma > 0) {
+    var head = data.slice(5, comma);
+    if (!mimeType) mimeType = head.split(";")[0];
+    data = data.slice(comma + 1);
+  }
+  if (mimeType !== "image/png" && mimeType !== "image/jpeg" && mimeType !== "image/webp") mimeType = "image/png";
+  if (!data) return { ok: false, error: "no_image" };
+  var name = oneLine_(body.name || "nota").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || "nota";
+  var blob = Utilities.newBlob(Utilities.base64Decode(data), mimeType, name);
+  var file = notesFolder_().createFile(blob);
+  return { ok: true, fileId: file.getId() };
+}
+
+function imageGet_(fileId) {
+  fileId = String(fileId || "").trim();
+  if (!fileId) return { ok: false, error: "not_found" };
+  var file;
+  try {
+    file = DriveApp.getFileById(fileId);
+  } catch (err) {
+    return { ok: false, error: "not_found" };
+  }
+  var blob = file.getBlob();
+  var mime = blob.getContentType() || "image/png";
+  return { ok: true, fileId: fileId, dataUrl: "data:" + mime + ";base64," + Utilities.base64Encode(blob.getBytes()) };
 }

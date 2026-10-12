@@ -26,6 +26,19 @@ import {
 } from "./model.js";
 import { buildNotifications, isUnread, unreadCount } from "./notify.js";
 import {
+  bindNotes,
+  clearNotesCache,
+  closeNoteEditor,
+  handleNotesClick,
+  hydrate,
+  initNotes,
+  noteEditorOpen,
+  openNoteEditor,
+  queueAllNotes,
+  renderNotesView,
+  syncNotes,
+} from "./notes-ui.js";
+import {
   clearLocalData,
   discardSampleQueue,
   isConfigured,
@@ -56,7 +69,7 @@ import {
   weekdaySun0,
 } from "./time.js";
 
-const VIEWS = ["bulan", "minggu", "senarai", "notis", "tetapan"];
+const VIEWS = ["bulan", "minggu", "senarai", "nota", "notis", "tetapan"];
 const DESKTOP = window.matchMedia("(min-width: 1100px)");
 
 const state = {
@@ -123,13 +136,15 @@ function updateChrome() {
   const cal = state.view === "bulan" || state.view === "minggu" || state.view === "senarai";
   document.getElementById("pager").hidden = !cal;
   document.getElementById("btn-today").hidden = !cal;
+  document.getElementById("btn-add").hidden = state.view === "nota";
   document.getElementById("filter-row").hidden = !cal;
-  document.getElementById("segment").hidden = state.view === "tetapan";
+  document.getElementById("segment").hidden = state.view === "tetapan" || state.view === "nota";
   document.getElementById("demo-banner").hidden = state.mode !== "demo";
   let title = "Content Planner";
   if (state.view === "bulan" || state.view === "senarai") title = formatMonthTitle(state.cursor);
   else if (state.view === "minggu") title = formatWeekTitle(state.cursor);
   else if (state.view === "notis") title = "Notifikasi";
+  else if (state.view === "nota") title = "Nota";
   else if (state.view === "tetapan") title = "Tetapan";
   document.getElementById("period-title").textContent = title;
   document.querySelectorAll("[data-nav]").forEach((btn) => {
@@ -342,8 +357,10 @@ function renderView({ force = false } = {}) {
     : state.view === "senarai" ? renderList()
       : state.view === "notis" ? renderNotis()
         : state.view === "tetapan" ? renderSettings()
-          : renderMonth();
+          : state.view === "nota" ? renderNotesView()
+            : renderMonth();
   root.innerHTML = html;
+  if (state.view === "nota") hydrate(root);
   if (same) root.scrollTop = top;
 }
 
@@ -463,7 +480,7 @@ function openEditor(id, dateOverride) {
           <option value="Siap"${item.status === "Siap" ? " selected" : ""}>Siap</option>
         </select>
       </label>
-      <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Notifikasi ke telefon 2 hari sebelum.</span></label>
+      <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Email 2 hari sebelum.</span></label>
       <p class="form-error" id="form-error"></p>
       <div class="dialog-actions">
         ${existing ? `<button type="button" class="btn-danger" id="btn-delete">Padam</button>` : ""}
@@ -477,6 +494,10 @@ function openEditor(id, dateOverride) {
 }
 
 function closeModal() {
+  if (noteEditorOpen()) {
+    closeNoteEditor();
+    return;
+  }
   const modal = document.getElementById("modal");
   modal.hidden = true;
   modal.innerHTML = "";
@@ -735,6 +756,7 @@ async function sync(opts = {}) {
     state.syncError = "";
     refreshViews();
     consumePendingItem(true);
+    syncNotes({ quiet: true });
   } catch (err) {
     state.mode = loadOutbox().length ? "pending" : "error";
     state.syncError = mapError(err);
@@ -800,6 +822,8 @@ async function connectFromForm() {
     saveSettings(settings);
     state.settings = settings;
     await pushAndPull(settings);
+    queueAllNotes();
+    syncNotes({ quiet: true });
     updateChrome();
     refreshViews();
     msg.textContent = "Sambung. Telefon dan laptop akan segerak.";
@@ -836,7 +860,7 @@ function goToday() {
   state.cursor = state.today;
   state.selectedDate = state.today;
   closeSheet();
-  if (state.view === "notis" || state.view === "tetapan") go("bulan");
+  if (state.view === "notis" || state.view === "tetapan" || state.view === "nota") go("bulan");
   else {
     updateChrome();
     renderView({ force: true });
@@ -948,6 +972,7 @@ function openFilterMenu(el) {
 
 function onClick(event) {
   if (!event.target.closest(".fselect")) closeFilterMenus();
+  if (handleNotesClick(event)) return;
   const toggle = event.target.closest("[data-toggle]");
   if (toggle) {
     persistStatus(toggle.dataset.toggle);
@@ -1046,7 +1071,8 @@ function onClick(event) {
     return;
   }
   if (event.target.closest("#btn-add")) {
-    openEditor(null);
+    if (state.view === "nota") openNoteEditor(null);
+    else openEditor(null);
     return;
   }
   if (event.target.closest("#btn-prev")) {
@@ -1089,9 +1115,10 @@ function onClick(event) {
     const connected = configured();
     const message = connected
       ? "Kosongkan data pada peranti ini? Hanya cache tempatan dikosongkan. Baris dalam Google Sheet tidak dipadam."
-      : "Kosongkan semua data pada peranti ini? Item di telefon atau laptop ini akan dipadam.";
+      : "Kosongkan semua data pada peranti ini? Item dan nota di telefon atau laptop ini akan dipadam.";
     if (!window.confirm(message)) return;
     clearLocalData();
+    clearNotesCache().then(() => refreshViews());
     state.items = [];
     refreshViews();
     toast(connected ? "Cache tempatan dikosongkan" : "Data dikosongkan");
@@ -1101,6 +1128,7 @@ function onClick(event) {
 
 function bind() {
   document.body.addEventListener("click", onClick);
+  bindNotes();
   document.body.addEventListener("submit", (event) => {
     if (event.target.id !== "item-form") return;
     event.preventDefault();
@@ -1186,6 +1214,15 @@ function boot() {
   state.cursor = state.today;
   state.selectedDate = state.today;
   state.mode = configured() ? "syncing" : "demo";
+  initNotes({
+    toast,
+    mapError,
+    settings: () => state.settings,
+    configured,
+    onChange: () => {
+      if (state.view === "nota") renderView({ force: true });
+    },
+  });
   buildFilters();
   bind();
   if (!location.hash) history.replaceState(null, "", "#bulan");
@@ -1195,6 +1232,7 @@ function boot() {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
   if (configured()) sync({ quiet: true });
+  else syncNotes({ quiet: true });
 }
 
 boot();

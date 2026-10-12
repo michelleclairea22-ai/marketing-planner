@@ -118,3 +118,46 @@ export function clearLocalData() {
   saveOutbox([]);
   if (!localStorage.getItem(SAMPLES_REMOVED)) localStorage.setItem(SAMPLES_REMOVED, "1");
 }
+
+// ----- Nota (metadata only; image data is in IndexedDB, see imgstore.js) -----
+const NOTES = "cp.notes.v1";
+const NOTE_TOMBS = "cp.noteTombs.v1";
+const NOTE_OUTBOX = "cp.noteOutbox.v1";
+
+export function loadNotes() {
+  const raw = readJSON(NOTES, []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+export function saveNotes(notes) {
+  localStorage.setItem(NOTES, JSON.stringify(notes));
+}
+
+export function loadNoteTombs() {
+  const raw = readJSON(NOTE_TOMBS, {});
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+export function saveNoteTombs(tombs) {
+  localStorage.setItem(NOTE_TOMBS, JSON.stringify(tombs));
+}
+
+export function loadNoteOutbox() {
+  const raw = readJSON(NOTE_OUTBOX, []);
+  return Array.isArray(raw) ? raw : [];
+}
+
+export function saveNoteOutbox(ops) {
+  localStorage.setItem(NOTE_OUTBOX, JSON.stringify(ops));
+}
+
+// Keep one pending op per note id; the newest wins.
+export function queueNoteOp(ops, op) {
+  return ops.filter((row) => row.id !== op.id).concat([op]);
+}
+
+export function clearLocalNotes() {
+  saveNotes([]);
+  saveNoteTombs({});
+  saveNoteOutbox([]);
+}
