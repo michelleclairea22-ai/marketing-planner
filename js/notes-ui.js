@@ -3,7 +3,7 @@ import { apiImageGet, apiImageUpload, apiNoteDelete, apiNoteUpsert, apiNotesList
 import { blankPage, openAnnotator, prepareImage } from "./draw.js";
 import { imgClear, imgDel, imgGet, imgKeys, imgPut } from "./imgstore.js";
 import { BRANDS, brandColor, esc, newId } from "./model.js";
-import { mergeNotes, normalizeNote, noteTitle, pendingUploads, referencedImageIds, sortNotes } from "./notes.js";
+import { checklistProgress, mergeNotes, normalizeNote, noteTitle, parseLines, plainBody, toggleLine, pendingUploads, referencedImageIds, sortNotes } from "./notes.js";
 import {
   clearLocalNotes,
   loadNoteOutbox,
@@ -63,16 +63,20 @@ export function renderNotesView() {
   const cards = notes.map((note) => {
     const first = note.images[0];
     const brand = note.brand ? `<span class="badge-soft"><i class="dot" style="background:${brandColor(note.brand)}"></i>${esc(note.brand)}</span>` : "";
-    const snippet = note.body ? `<p class="row-notes">${esc(note.body.slice(0, 160))}</p>` : "";
+    const plain = plainBody(note.body);
+    const snippet = plain.trim() ? `<p class="row-notes">${esc(plain.slice(0, 160))}</p>` : "";
+    const prog = checklistProgress(note.body);
+    const progress = prog.done ? `<span class="badge-soft badge-prog">${prog.done}/${prog.total} ✓</span>` : "";
+    const siap = note.done ? `<span class="badge-soft badge-siap">SIAP</span>` : "";
     const count = note.images.length > 1 ? `<span class="badge-soft">${note.images.length} gambar</span>` : "";
-    return `<button type="button" class="nota-card" data-note="${esc(note.id)}">
+    return `<div class="nota-wrap${note.done ? " is-siap" : ""}"><button type="button" class="nota-card" data-note="${esc(note.id)}">
       ${first ? stackHtml(first, "nota-thumb") : `<span class="nota-thumb nota-thumb-empty" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg></span>`}
       <span class="nota-info">
         <span class="row-title">${esc(noteTitle(note))}</span>
         ${snippet}
-        <span class="badges">${brand}<span class="badge-soft">Dikemas ${esc(formatShortDate((note.updatedAt || "").slice(0, 10)))}</span>${count}</span>
+        <span class="badges">${siap}${brand}${progress}<span class="badge-soft">Dikemas ${esc(formatShortDate((note.updatedAt || "").slice(0, 10)))}</span>${count}</span>
       </span>
-    </button>`;
+    </button><button type="button" class="nota-quick${note.done ? " on" : ""}" data-note-siap="${esc(note.id)}" aria-pressed="${note.done}" aria-label="${note.done ? "Tanda belum siap" : "Tanda siap"}" title="${note.done ? "Tanda belum siap" : "Tanda siap"}">✓</button></div>`;
   }).join("");
   return `<div class="nota-view" data-testid="nota-list">
     <div class="notis-head">
@@ -106,7 +110,7 @@ function paintDraftImages() {
 
 export function openNoteEditor(id) {
   const existing = id ? ui.notes.find((n) => n.id === id) : null;
-  ui.draft = existing ? structuredClone(existing) : { id: newId(), title: "", brand: "", body: "", images: [], createdAt: "", updatedAt: "" };
+  ui.draft = existing ? structuredClone(existing) : { id: newId(), title: "", brand: "", body: "", done: false, images: [], createdAt: "", updatedAt: "" };
   ui.draft.isNew = !existing;
   ui.draftData = new Map();
   ui.confirmDelete = false;
@@ -123,6 +127,10 @@ export function openNoteEditor(id) {
         </label>
       </div>
       <label class="field"><span>Nota</span><textarea id="n-body" maxlength="20000" rows="6">${esc(ui.draft.body)}</textarea></label>
+      <div class="field"><span>Senarai semak <small class="muted">(tekan kotak untuk tanda)</small></span>
+        <div id="ne-check" class="ne-check" data-testid="note-checklist"></div>
+      </div>
+      <label class="ne-siap"><input type="checkbox" id="n-done"${ui.draft.done ? " checked" : ""}> Nota ini <b>Siap</b></label>
       <div class="field"><span>Gambar</span>
         <div id="ne-images" class="ne-images"></div>
         <div class="ne-add">
@@ -140,6 +148,43 @@ export function openNoteEditor(id) {
     </form>`;
   modal.hidden = false;
   paintDraftImages();
+  paintChecklist();
+}
+
+function paintChecklist() {
+  const box = document.getElementById("ne-check");
+  const body = document.getElementById("n-body")?.value || "";
+  if (!box) return;
+  const lines = parseLines(body).filter((l) => !l.empty);
+  box.innerHTML = lines.length ? lines.map((l) => `<button type="button" class="ne-line${l.checked ? " done" : ""}" data-tick-line="${l.index}" aria-pressed="${l.checked}">
+      <span class="ne-box" aria-hidden="true">${l.checked ? "✓" : ""}</span><span class="ne-text">${esc(l.text.trim())}</span></button>`).join("")
+    : `<p class="muted">Tulis nota di atas, satu perkara satu baris.</p>`;
+}
+
+// Tick/Siap changes on an existing note save immediately (like a normal edit), keeping the editor open.
+function quickPersist() {
+  readForm();
+  const draft = ui.draft;
+  const stored = draft && ui.notes.find((n) => n.id === draft.id);
+  if (!stored) return; // new note: saved with Simpan
+  const stamp = nowIsoKL();
+  const note = normalizeNote({ ...stored, body: draft.body, done: draft.done, updatedAt: stamp });
+  draft.updatedAt = stamp;
+  saveLocal(note);
+  ctx.onChange();
+  queue({ op: "upsert", id: note.id });
+  flushSoon();
+}
+
+function toggleNoteDone(id) {
+  const stored = ui.notes.find((n) => n.id === id);
+  if (!stored) return;
+  const note = normalizeNote({ ...stored, done: !stored.done, updatedAt: nowIsoKL() });
+  saveLocal(note);
+  ctx.toast(note.done ? "Nota ditanda Siap" : "Nota belum siap");
+  ctx.onChange();
+  queue({ op: "upsert", id: note.id });
+  flushSoon();
 }
 
 function readForm() {
@@ -147,6 +192,8 @@ function readForm() {
   ui.draft.title = document.getElementById("n-title")?.value.trim() || "";
   ui.draft.brand = document.getElementById("n-brand")?.value || "";
   ui.draft.body = document.getElementById("n-body")?.value || "";
+  const done = document.getElementById("n-done");
+  if (done) ui.draft.done = done.checked;
 }
 
 export function closeNoteEditor() {
@@ -277,10 +324,22 @@ async function deleteDraft() {
 export function handleNotesClick(event) {
   const t = event.target;
   if (t.closest("[data-note-new]")) { openNoteEditor(null); return true; }
+  const quick = t.closest("[data-note-siap]");
+  if (quick) { toggleNoteDone(quick.dataset.noteSiap); return true; }
   const open = t.closest("[data-note]");
   if (open) { openNoteEditor(open.dataset.note); return true; }
   if (!ui.draft) return false;
   if (t.closest("[data-close-note]")) { closeNoteEditor(); return true; }
+  const tick = t.closest("[data-tick-line]");
+  if (tick) {
+    const area = document.getElementById("n-body");
+    if (area) {
+      area.value = toggleLine(area.value, Number(tick.dataset.tickLine));
+      paintChecklist();
+      quickPersist();
+    }
+    return true;
+  }
   const draw = t.closest("[data-img-draw]");
   if (draw) { readForm(); drawOn(draw.dataset.imgDraw); return true; }
   const rm = t.closest("[data-img-remove]");
@@ -307,6 +366,9 @@ export function handleNotesClick(event) {
 }
 
 export function bindNotes() {
+  document.body.addEventListener("input", (event) => {
+    if (event.target.id === "n-body") paintChecklist();
+  });
   document.body.addEventListener("submit", (event) => {
     if (event.target.id !== "note-form") return;
     event.preventDefault();
@@ -317,6 +379,8 @@ export function bindNotes() {
       const files = [...(event.target.files || [])];
       event.target.value = "";
       addFiles(files);
+    } else if (event.target.id === "n-done") {
+      quickPersist();
     } else if (event.target.id === "n-brand") {
       const dot = document.getElementById("n-brand-dot");
       if (dot) dot.style.background = event.target.value ? brandColor(event.target.value) : "transparent";

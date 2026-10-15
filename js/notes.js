@@ -33,6 +33,7 @@ export function normalizeNote(raw) {
     brand,
     body: String(raw.body || "").slice(0, 20000),
     images: images.map(normalizeImage).filter(Boolean),
+    done: raw.done === true || /^(1|true|ya|siap)$/i.test(String(raw.done || "").trim()),
     createdAt: String(raw.createdAt || ""),
     updatedAt: String(raw.updatedAt || ""),
   };
@@ -56,12 +57,12 @@ export function mergeNotes(local, server, tombstones = {}) {
 }
 
 export function sortNotes(notes) {
-  return [...notes].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "") || a.title.localeCompare(b.title));
+  return [...notes].sort((a, b) => (Number(Boolean(a.done)) - Number(Boolean(b.done))) || (b.updatedAt || "").localeCompare(a.updatedAt || "") || a.title.localeCompare(b.title));
 }
 
 export function noteTitle(note) {
   if (note.title) return note.title;
-  const first = String(note.body || "").split("\n").map((s) => s.trim()).find(Boolean);
+  const first = plainBody(note.body).split("\n").map((s) => s.trim()).find(Boolean);
   return first ? first.slice(0, 60) : "Nota tanpa tajuk";
 }
 
@@ -138,4 +139,37 @@ export function clampView(view, fw, fh, sw, sh) {
 // Stage point -> image coordinates for a view (frame fw wide at z=1 shows imgW pixels).
 export function stageToImage(sx, sy, view, fw, fh, imgW, imgH) {
   return { x: ((sx - view.x) / (fw * view.z)) * imgW, y: ((sy - view.y) / (fh * view.z)) * imgH };
+}
+
+// ----- Checklist inside the note body -----
+// A line is ticked when it starts with "[x] " (case-insensitive). "[ ] " or no prefix = not ticked.
+// Every non-empty line gets a tick box, so old notes work unchanged.
+const TICK_RE = /^(\s*)\[( |x|X)\]\s?/;
+
+export function parseLines(body) {
+  return String(body || "").split("\n").map((raw, index) => {
+    const m = raw.match(TICK_RE);
+    const text = m ? m[1] + raw.slice(m[0].length) : raw;
+    return { index, raw, text, checked: Boolean(m && m[2].toLowerCase() === "x"), empty: !text.trim() };
+  });
+}
+
+// Toggle line `index`; ticking adds "[x] ", unticking removes the prefix again.
+export function toggleLine(body, index) {
+  const lines = String(body || "").split("\n");
+  if (index < 0 || index >= lines.length) return String(body || "");
+  const line = parseLines(lines[index])[0];
+  if (line.empty) return lines.join("\n");
+  lines[index] = line.checked ? line.text : line.text.replace(/^(\s*)/, "$1[x] ");
+  return lines.join("\n");
+}
+
+export function checklistProgress(body) {
+  const lines = parseLines(body).filter((l) => !l.empty);
+  return { done: lines.filter((l) => l.checked).length, total: lines.length };
+}
+
+// Body text with tick prefixes removed (for previews / titles).
+export function plainBody(body) {
+  return parseLines(body).map((l) => l.text).join("\n");
 }

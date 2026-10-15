@@ -291,7 +291,7 @@ assert.match(appSrc, /Ingatkan saya\. Email 12 jam sebelum \(tiada masa: 9 pagi 
 assert.doesNotMatch(appSrc, /ntfy|Notifikasi ke telefon/);
 assert.match(appSrc, /searchParams\.get\("item"\)/);
 assert.doesNotMatch(appSrc, /30 minit|Emel /);
-assert.match(sw, /content-planner-v8/);
+assert.match(sw, /content-planner-v9/);
 assert.doesNotMatch(sw, /content-planner-v7/);
 assert.doesNotMatch(sw, /content-planner-v6/);
 assert.match(sw, /recur\.js/);

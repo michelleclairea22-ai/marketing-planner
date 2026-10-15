@@ -880,3 +880,22 @@ body.is-drawing { overflow: hidden; overscroll-behavior: none; }
   }
   .month .chip .rep-ic { width: 9px; height: 9px; }
 }
+
+/* Nota: Siap + senarai semak */
+.nota-wrap { position: relative; display: flex; }
+.nota-wrap > .nota-card { flex: 1; padding-right: 48px; }
+.nota-wrap.is-siap > .nota-card { opacity: .55; }
+.nota-quick { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--line, #ccc); background: transparent; color: transparent; font-weight: 700; cursor: pointer; }
+.nota-quick:hover { border-color: var(--pink); color: var(--pink); }
+.nota-quick.on { background: #2e9e5b; border-color: #2e9e5b; color: #fff; }
+.badge-siap { background: #2e9e5b !important; color: #fff !important; font-weight: 700; }
+.badge-prog { font-weight: 600; }
+.ne-check { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.ne-line { display: flex; align-items: flex-start; gap: 10px; text-align: left; background: transparent; border: 0; padding: 6px 4px; cursor: pointer; color: inherit; font: inherit; border-radius: 8px; }
+.ne-line:hover { background: rgba(127,127,127,.08); }
+.ne-box { flex: none; width: 22px; height: 22px; border: 2px solid currentColor; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; opacity: .7; }
+.ne-line.done .ne-box { background: #2e9e5b; border-color: #2e9e5b; color: #fff; opacity: 1; }
+.ne-line.done .ne-text { text-decoration: line-through; opacity: .5; }
+.ne-text { white-space: pre-wrap; word-break: break-word; }
+.ne-siap { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; cursor: pointer; }
+.ne-siap input { width: 20px; height: 20px; }

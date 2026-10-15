@@ -619,7 +619,7 @@ function previewTwoDayReminders() {
 
 // ----- Nota (tab Notes) dan gambar (Drive) -----
 
-var NOTE_HEADERS = ["id", "title", "brand", "body", "images", "createdAt", "updatedAt"];
+var NOTE_HEADERS = ["id", "title", "brand", "body", "images", "createdAt", "updatedAt", "done"];
 var NOTES_FOLDER = "Content Planner Notes";
 
 function ensureNotesSheet_() {
@@ -678,6 +678,7 @@ function normalizeNote_(raw, existing) {
     brand: brand,
     body: cellText_(raw.body).slice(0, 20000),
     images: parseNoteImages_(raw.images),
+    done: /^(1|true|ya|siap)$/i.test(cellText_(raw.done).trim()) || raw.done === true ? "1" : "",
     createdAt: normalizeStamp_(raw.createdAt) || (existing && existing.createdAt) || now,
     updatedAt: normalizeStamp_(raw.updatedAt) || now
   };

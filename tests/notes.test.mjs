@@ -121,3 +121,33 @@ console.log("notes tests ok");
   assert.deepEqual(clampView({ z: 3, x: 50, y: -5000 }, 400, 300, 420, 320), { z: 3, x: 0, y: -580 });
   assert.equal(strokeWidth(3, 0.25 * 4), 3);
 }
+
+// ----- Checklist + Siap -----
+{
+  const { parseLines, toggleLine, checklistProgress, plainBody, normalizeNote: nn, sortNotes: sn, noteTitle: nt } = await import("../js/notes.js");
+  const body = "Beli kain\n\n[x] Tempah studio\n[ ] Hantar brief";
+  const lines = parseLines(body);
+  assert.equal(lines[2].checked, true);
+  assert.equal(lines[2].text, "Tempah studio");
+  assert.equal(lines[3].checked, false);
+  assert.equal(lines[1].empty, true);
+  assert.deepEqual(checklistProgress(body), { done: 1, total: 3 });
+  assert.equal(toggleLine(body, 0), "[x] Beli kain\n\n[x] Tempah studio\n[ ] Hantar brief");
+  assert.equal(toggleLine(body, 2), "Beli kain\n\nTempah studio\n[ ] Hantar brief");
+  assert.equal(toggleLine(body, 3), "Beli kain\n\n[x] Tempah studio\n[x] Hantar brief");
+  assert.equal(toggleLine(body, 1), body); // empty line unchanged
+  assert.equal(toggleLine(toggleLine("  indent", 0), 0), "  indent");
+  assert.equal(plainBody(body), "Beli kain\n\nTempah studio\nHantar brief");
+  assert.equal(nt({ title: "", body: "[x] Siap dah" }), "Siap dah");
+  assert.deepEqual(checklistProgress("biasa\nnota lama"), { done: 0, total: 2 }); // old notes untouched
+  assert.equal(nn({ id: "a" }).done, false);
+  assert.equal(nn({ id: "a", done: "1" }).done, true);
+  assert.equal(nn({ id: "a", done: true }).done, true);
+  assert.equal(nn({ id: "a", done: "" }).done, false);
+  const sorted = sn([{ id: "a", title: "A", done: true, updatedAt: "2026-10-15" }, { id: "b", title: "B", done: false, updatedAt: "2026-10-01" }]);
+  assert.deepEqual(sorted.map((x) => x.id), ["b", "a"]);
+  const gs = fs.readFileSync(path.join(root, "apps-script/Code.gs"), "utf8");
+  assert.match(gs, /"createdAt", "updatedAt", "done"\]/);
+  assert.match(fs.readFileSync(path.join(root, "sw.js"), "utf8"), /content-planner-v9/);
+}
+console.log("notes checklist ok");
