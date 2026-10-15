@@ -1,4 +1,4 @@
-const CACHE = "content-planner-v7";
+const CACHE = "content-planner-v8";
 
 const ASSETS = [
   "./",

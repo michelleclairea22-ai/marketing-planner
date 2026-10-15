@@ -26,7 +26,7 @@ python3 -m http.server 4177
 | --- | --- |
 | root repo | Laman app: `index.html`, `css/`, `js/`, `icons/`, `manifest.json`, `sw.js`, `.nojekyll`. |
 | `apps-script/Code.gs` | Kod untuk Google Sheet (item, nota, gambar). |
-| `apps-script/Emel.gs` | Peringatan emel 2 hari sebelum (`installEmailTriggers`). |
+| `apps-script/Emel.gs` | Peringatan emel 12 jam sebelum; tiada masa: 9 pagi sehari sebelum (`installEmailTriggers`, setiap jam). |
 | `apps-script/appsscript.json` | Zon masa dan kebenaran. |
 | `scripts/make-icons.py` | Jana ikon semula dari logo (tak wajib). |
 
@@ -114,7 +114,7 @@ Peringatan dihantar sebagai **emel** ke akaun Google anda, melalui fail `Emel.gs
 
 Kod notifikasi ntfy lama (`installTriggers`, `sendTwoDayReminders`, `testNtfy`, `NTFY_TOPIC`) telah dibuang. Script property `NTFY_TOPIC` lama, jika ada, boleh dipadam — ia tidak dibaca lagi.
 
-Syarat peringatan: `remind` hidup, status bukan Siap, dan tarikh item tepat **2 hari** dari hari ini (waktu Kuala Lumpur). Masa item tidak wajib. Satu emel sahaja untuk tarikh itu. `remindedAt` menyimpan tarikh yang sudah diingatkan. Emel peringatan dibuang sendiri sehari selepas tarikh item.
+Syarat peringatan: `remind` hidup, status bukan Siap, dan sudah tiba masanya: item bermasa **12 jam sebelum** masa item (selagi belum lepas); item tanpa masa jam **9 pagi sehari sebelum** tarikh (waktu Kuala Lumpur). Trigger berjalan setiap jam. Satu emel sahaja untuk tarikh itu. `remindedAt` menyimpan tarikh yang sudah diingatkan. Emel peringatan dibuang sendiri sehari selepas tarikh item.
 
 Untuk alamat lain, tambah Script property `OWNER_EMAIL`.
 
@@ -172,7 +172,7 @@ Ikon ialah logo kalendar dengan pin.
 - Cari tajuk. Tapis jenama, jenis, dan status.
 - Pada laptop: menu kiri, kalendar di tengah, **Senarai hari ini** di kanan.
 - Pada telefon: menu bawah. Tekan satu hari dalam bulan untuk lihat senarai hari itu.
-- **Ingatkan saya** — emel 2 hari sebelum tarikh. Masa tidak wajib.
+- **Ingatkan saya** — emel 12 jam sebelum masa item; tiada masa: 9 pagi sehari sebelum.
 - **Nota** — nota teks dan gambar. Tambah gambar dari kamera atau galeri, tekan **Lukis** untuk tanda atau conteng (pen merah, hijau, biru; Halus/Tebal; Pemadam; Undo). Lukisan disimpan berasingan, jadi gambar asal tak rosak dan tanda boleh dipadam kemudian. **Lukisan kosong** untuk nota tulisan tangan. Gambar disimpan dalam Google Drive (folder **Content Planner Notes**) dan disegerak ke telefon dan laptop.
 - **Ulang** dalam borang item — Tidak / Setiap hari / Setiap minggu / Setiap 2 minggu / Setiap bulan, dengan tarikh **Hingga** (wajib, had 100 ulangan). Setiap ulangan disimpan sebagai item biasa dalam Sheet, berkongsi `seriesId`; `repeat` menyimpan peraturan (cth. `weekly|2026-12-31`). Bulanan pada 29–31 haribulan jatuh pada hari akhir bulan yang lebih pendek. Item berulang ada ikon ulang kecil. Bila edit atau padam satu ulangan, app tanya: **ini sahaja** atau **semua akan datang** (tarikh ini dan selepasnya). Status Siap/Belum hanya untuk ulangan itu. Peringatan emel dan loceng berfungsi seperti item biasa.
 - Loceng — pusat notifikasi. Kira item terlewat yang masih Belum, item hari ini yang Belum, item bermasa dalam 7 hari, dan item dengan peringatan hidup yang tepat 2 hari lagi (walaupun tanpa masa). Item Siap tak masuk.
@@ -199,7 +199,7 @@ Ikon ialah logo kalendar dengan pin.
 - Bukan Google Calendar, dan tak segerak dengan kalendar Google.
 - Tak ada analitik, kempen, atau banyak pengguna.
 - Tak ada ulang setiap minggu. Satu baris, satu item. Salin secara manual jika perlu.
-- Peringatan ialah emel kepada anda sahaja, 2 hari sebelum tarikh, sekitar jam 9 pagi. Bukan ke pelanggan.
+- Peringatan ialah emel kepada anda sahaja, 12 jam sebelum masa item, atau 9 pagi sehari sebelum jika tiada masa. Bukan ke pelanggan.
 - Google tak jamin minit tepat. Emel tiba dalam lingkungan jam 9–10 pagi, bukan tepat 9:00:00.
 - Laman GitHub Pages adalah awam. Data item tidak awam, selagi kunci tidak dikongsi.
 - Selepas ubah `Code.gs`, anda mesti deploy versi baru. Simpan sahaja tidak cukup.

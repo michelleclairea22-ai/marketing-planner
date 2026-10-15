@@ -81,7 +81,7 @@ assert.match(setupSrc, /ensureNotesSheet_\(\)/);
 const routeSrc = gs.slice(gs.indexOf("function route_("), gs.indexOf("function json_("));
 assert.ok(routeSrc.indexOf("isAuthorized_") < routeSrc.indexOf("notesList"));
 const emel = fs.readFileSync(path.join(root, "apps-script/Emel.gs"), "utf8");
-for (const helper of ["formatMalayDate_", "typeLabel_", "appUrl_", "todayKL_", "selectTwoDayReminders", "readAllItems_", "markReminded_", "addIsoDays_"]) {
+for (const helper of ["formatMalayDate_", "typeLabel_", "appUrl_", "todayKL_", "isIsoDate_", "alreadyRemindedFor_", "readAllItems_", "markReminded_", "addIsoDays_"]) {
   assert.match(emel + "", new RegExp(helper.replace(/_$/, "_")));
   assert.match(gs, new RegExp(`function ${helper}\\(`));
 }

@@ -505,7 +505,7 @@ function openEditor(id, dateOverride) {
           <option value="Siap"${item.status === "Siap" ? " selected" : ""}>Siap</option>
         </select>
       </label>
-      <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Email 2 hari sebelum.</span></label>
+      <label class="switch"><input id="f-remind" type="checkbox"${item.remind === "on" ? " checked" : ""}><span>Ingatkan saya. Email 12 jam sebelum (tiada masa: 9 pagi sehari sebelum).</span></label>
       <p class="form-error" id="form-error"></p>
       <div class="dialog-actions" id="dialog-actions">
         ${existing ? `<button type="button" class="btn-danger" id="btn-delete">Padam</button>` : ""}

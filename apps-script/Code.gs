@@ -561,7 +561,7 @@ function onOpen() {
     .addItem("1. Setup helaian", "setup")
     .addItem("2. Pasang peringatan emel", "installEmailTriggers")
     .addItem("Uji emel peringatan", "testEmail")
-    .addItem("Pratonton peringatan 2 hari (log)", "previewTwoDayReminders")
+    .addItem("Pratonton peringatan email (log)", "previewTwoDayReminders")
     .addToUi();
 }
 
@@ -603,10 +603,10 @@ function markReminded_(id, itemDate) {
 }
 
 function previewTwoDayReminders() {
-  var today = todayKL_(new Date());
-  var due = selectTwoDayReminders(readAllItems_(), today);
+  // Nama dikekalkan untuk menu. Guna peraturan baharu dalam Emel.gs (12 jam / 9 pagi sehari sebelum).
+  var due = selectDueReminders_(readAllItems_(), Date.now());
   if (!due.length) {
-    console.log("Tiada item untuk " + addIsoDays_(today, 2) + ".");
+    console.log("Tiada peringatan perlu dihantar sekarang.");
     return "Tiada";
   }
   var lines = due.map(function (item) {
