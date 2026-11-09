@@ -143,8 +143,10 @@ export function stageToImage(sx, sy, view, fw, fh, imgW, imgH) {
 
 // ----- Checklist inside the note body -----
 // A line is ticked when it starts with "[x] " (case-insensitive). "[ ] " or no prefix = not ticked.
-// Every non-empty line gets a tick box, so old notes work unchanged.
+// Numbered (1. / 1)) or bulleted (- / • / *) lines start a checklist item; other non-empty
+// lines join the previous item. If the note has no markers at all, every line is its own item.
 const TICK_RE = /^(\s*)\[( |x|X)\]\s?/;
+const ITEM_START_RE = /^\s*(?:\d+[.)]|[-•*])(?:\s|$)/;
 
 export function parseLines(body) {
   return String(body || "").split("\n").map((raw, index) => {
@@ -154,7 +156,44 @@ export function parseLines(body) {
   });
 }
 
+export function isChecklistItemStart(text) {
+  const stripped = String(text || "").replace(TICK_RE, (_, sp) => sp);
+  return ITEM_START_RE.test(stripped);
+}
+
+// Group non-empty lines into checklist items. `index` is the first line (where [x] lives).
+export function groupChecklist(body) {
+  const lines = parseLines(body).filter((l) => !l.empty);
+  if (!lines.length) return [];
+  const marked = lines.some((l) => isChecklistItemStart(l.text));
+  if (!marked) {
+    return lines.map((l) => ({
+      index: l.index,
+      checked: l.checked,
+      text: l.text.trim(),
+      lineIndexes: [l.index],
+    }));
+  }
+  const items = [];
+  for (const l of lines) {
+    if (isChecklistItemStart(l.text) || !items.length) {
+      items.push({
+        index: l.index,
+        checked: l.checked,
+        texts: [l.text.trim()],
+        lineIndexes: [l.index],
+      });
+    } else {
+      const cur = items[items.length - 1];
+      cur.texts.push(l.text.trim());
+      cur.lineIndexes.push(l.index);
+    }
+  }
+  return items.map(({ texts, ...rest }) => ({ ...rest, text: texts.join("\n") }));
+}
+
 // Toggle line `index`; ticking adds "[x] ", unticking removes the prefix again.
+// For grouped items, pass the item's first-line index so only that line stores [x].
 export function toggleLine(body, index) {
   const lines = String(body || "").split("\n");
   if (index < 0 || index >= lines.length) return String(body || "");
@@ -165,8 +204,8 @@ export function toggleLine(body, index) {
 }
 
 export function checklistProgress(body) {
-  const lines = parseLines(body).filter((l) => !l.empty);
-  return { done: lines.filter((l) => l.checked).length, total: lines.length };
+  const items = groupChecklist(body);
+  return { done: items.filter((i) => i.checked).length, total: items.length };
 }
 
 // Body text with tick prefixes removed (for previews / titles).

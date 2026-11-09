@@ -148,6 +148,43 @@ console.log("notes tests ok");
   assert.deepEqual(sorted.map((x) => x.id), ["b", "a"]);
   const gs = fs.readFileSync(path.join(root, "apps-script/Code.gs"), "utf8");
   assert.match(gs, /"createdAt", "updatedAt", "done"\]/);
-  assert.match(fs.readFileSync(path.join(root, "sw.js"), "utf8"), /content-planner-v9/);
+  assert.match(fs.readFileSync(path.join(root, "sw.js"), "utf8"), /content-planner-v10/);
+}
+
+// Numbered / bulleted lines group continuation lines (links under an item stay with it)
+{
+  const { groupChecklist, toggleLine, checklistProgress, isChecklistItemStart } = await import("../js/notes.js");
+  assert.equal(isChecklistItemStart("1. Production"), true);
+  assert.equal(isChecklistItemStart("2) Next"), true);
+  assert.equal(isChecklistItemStart("- bullet"), true);
+  assert.equal(isChecklistItemStart("• bullet"), true);
+  assert.equal(isChecklistItemStart("* bullet"), true);
+  assert.equal(isChecklistItemStart("https://vt.tiktok.com/x"), false);
+  assert.equal(isChecklistItemStart("[x] 1. Done"), true); // tick prefix ignored when detecting item starts
+
+  const body = "1. Production Team (Wan & the bois) - PC ming (Jum register Workshop..)\nhttps://vt.tiktok.com/ZSg5Q7sGn/\n\n\n2. https://vt.tiktok.com/ZSg5CDu6c/";
+  const items = groupChecklist(body);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].index, 0);
+  assert.match(items[0].text, /Production Team/);
+  assert.match(items[0].text, /ZSg5Q7sGn/);
+  assert.equal(items[0].text.includes("\n"), true);
+  assert.equal(items[1].index, 4);
+  assert.match(items[1].text, /ZSg5CDu6c/);
+  assert.deepEqual(checklistProgress(body), { done: 0, total: 2 });
+
+  const ticked = toggleLine(body, items[0].index);
+  assert.match(ticked.split("\n")[0], /^\[x\] 1\. /);
+  assert.equal(ticked.split("\n")[1], "https://vt.tiktok.com/ZSg5Q7sGn/"); // continuation unchanged
+  assert.deepEqual(checklistProgress(ticked), { done: 1, total: 2 });
+  assert.equal(toggleLine(ticked, items[0].index).split("\n")[0].startsWith("[x]"), false);
+
+  // Bullets group the same way
+  const bullets = "- Satu\nlink A\n- Dua\nlink B";
+  assert.equal(groupChecklist(bullets).length, 2);
+  assert.deepEqual(checklistProgress(bullets), { done: 0, total: 2 });
+
+  // No markers → each line is still its own item (legacy)
+  assert.equal(groupChecklist("biasa\nnota lama").length, 2);
 }
 console.log("notes checklist ok");

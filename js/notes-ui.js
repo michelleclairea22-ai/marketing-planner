@@ -3,7 +3,7 @@ import { apiImageGet, apiImageUpload, apiNoteDelete, apiNoteUpsert, apiNotesList
 import { blankPage, openAnnotator, prepareImage } from "./draw.js";
 import { imgClear, imgDel, imgGet, imgKeys, imgPut } from "./imgstore.js";
 import { BRANDS, brandColor, esc, newId } from "./model.js";
-import { checklistProgress, mergeNotes, normalizeNote, noteTitle, parseLines, plainBody, toggleLine, pendingUploads, referencedImageIds, sortNotes } from "./notes.js";
+import { checklistProgress, groupChecklist, mergeNotes, normalizeNote, noteTitle, plainBody, toggleLine, pendingUploads, referencedImageIds, sortNotes } from "./notes.js";
 import {
   clearLocalNotes,
   loadNoteOutbox,
@@ -155,10 +155,10 @@ function paintChecklist() {
   const box = document.getElementById("ne-check");
   const body = document.getElementById("n-body")?.value || "";
   if (!box) return;
-  const lines = parseLines(body).filter((l) => !l.empty);
-  box.innerHTML = lines.length ? lines.map((l) => `<button type="button" class="ne-line${l.checked ? " done" : ""}" data-tick-line="${l.index}" aria-pressed="${l.checked}">
-      <span class="ne-box" aria-hidden="true">${l.checked ? "✓" : ""}</span><span class="ne-text">${esc(l.text.trim())}</span></button>`).join("")
-    : `<p class="muted">Tulis nota di atas, satu perkara satu baris.</p>`;
+  const items = groupChecklist(body);
+  box.innerHTML = items.length ? items.map((it) => `<button type="button" class="ne-line${it.checked ? " done" : ""}" data-tick-line="${it.index}" aria-pressed="${it.checked}">
+      <span class="ne-box" aria-hidden="true">${it.checked ? "✓" : ""}</span><span class="ne-text">${esc(it.text)}</span></button>`).join("")
+    : `<p class="muted">Tulis nota di atas, satu perkara satu baris. Nombor atau bullet kumpul baris seterusnya.</p>`;
 }
 
 // Tick/Siap changes on an existing note save immediately (like a normal edit), keeping the editor open.
